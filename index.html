@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HidroGest — Gestão de Consumo de Água</title>
+
+  <!-- CDN Dependencies -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vue@3.3.4/dist/vue.global.prod.js"></script>
+
+  <style>
+    /* Hide Vue bindings before hydration */
+    [v-cloak] { display: none; }
+
+    body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+
+    /* ── Navigation Tabs ── */
+    .nav-tab {
+      padding: 0.85rem 1.2rem;
+      font-size: 0.85rem;
+      border-bottom: 3px solid transparent;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: color 0.15s, border-color 0.15s;
+      color: #6b7280;
+    }
+    .nav-tab.active { border-bottom-color: #2563eb; color: #2563eb; font-weight: 600; }
+    .nav-tab:not(.active):hover { color: #374151; border-bottom-color: #d1d5db; }
+
+    /* ── Cards ── */
+    .stat-card {
+      background: white;
+      border-radius: 14px;
+      padding: 1.4rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 4px 16px rgba(0,0,0,.05);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .stat-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,.1); }
+    .card {
+      background: white;
+      border-radius: 14px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 4px 16px rgba(0,0,0,.05);
+    }
+
+    /* ── Badges ── */
+    .badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 3px 10px; border-radius: 9999px;
+      font-size: 0.7rem; font-weight: 700; letter-spacing: 0.02em;
+    }
+
+    /* ── Table Inputs ── */
+    .tbl-input {
+      width: 100%; border: 1px solid #e2e8f0; border-radius: 7px;
+      padding: 6px 10px; font-size: 0.82rem;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      background: white; color: #1e293b;
+    }
+    .tbl-input:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.18); }
+    .tbl-input:disabled { background: #f8fafc; color: #475569; cursor: not-allowed; border-color: #f1f5f9; }
+
+    .qty-input {
+      width: 60px; text-align: center; border: 1px solid #e2e8f0;
+      border-radius: 7px; padding: 6px 4px; font-size: 0.88rem; font-weight: 600;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .qty-input:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.18); }
+
+    /* ── Row styles ── */
+    .row-new { background: #fffbeb; }
+    .row-new:hover { background: #fef3c7; }
+    .row-existing:hover { background: #f8fafc; }
+
+    /* ── Edit button ── */
+    .btn-edit {
+      padding: 5px; border-radius: 6px; color: #94a3b8;
+      transition: color 0.15s, background 0.15s; cursor: pointer;
+    }
+    .btn-edit:hover { color: #3b82f6; background: #eff6ff; }
+
+    /* ── Progress bar ── */
+    .prog-bg { background: #e2e8f0; border-radius: 9999px; height: 7px; overflow: hidden; }
+    .prog-fill { height: 100%; border-radius: 9999px; transition: width 0.6s ease; }
+
+    /* ── Animations ── */
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-up { animation: fadeUp 0.25s ease-out; }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: #f1f5f9; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+  </style>
+</head>
+
+<body class="bg-slate-50 min-h-screen text-gray-800">
+<div id="app" v-cloak>
+
+  <!-- ══════════════════════════════════════════════
+       HEADER — Logo + Condomínio info + Nav tabs
+  ══════════════════════════════════════════════ -->
+  <header class="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm">
+    <div class="max-w-screen-xl mx-auto px-6">
+
+      <!-- Top bar -->
+      <div class="flex items-center justify-between h-16">
+
+        <!-- Logo -->
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center shadow">
+            <!-- Water drop icon -->
+            <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 2C12 2 4 10.5 4 15a8 8 0 0016 0C20 10.5 12 2 12 2z"/>
+            </svg>
+          </div>
+          <div class="leading-tight">
+            <p class="text-lg font-bold text-gray-900 leading-none">HidroGest</p>
+            <p class="text-[10px] text-blue-500 font-medium tracking-wide">GESTÃO DE ÁGUA</p>
+          </div>
+        </div>
+
+        <!-- Active condomínio pill (desktop) -->
+        <div class="hidden md:flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 shadow-inner">
+          <svg class="w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
+          </svg>
+          <span class="text-sm font-semibold text-slate-700">EDF. 5 AVENIDA</span>
+          <span class="text-slate-300">|</span>
+          <span class="text-sm text-slate-500">Dezembro / 2025</span>
+          <span class="ml-1 w-2 h-2 bg-green-400 rounded-full inline-block" title="Online - sincronizado"></span>
+        </div>
+
+        <!-- User avatar -->
+        <div class="flex items-center gap-3">
+          <div class="text-right hidden md:block">
+            <p class="text-sm font-medium text-gray-700">Administrador</p>
+            <p class="text-xs text-gray-400">admin@hidrogest.com</p>
+          </div>
+          <div class="w-9 h-9 bg-gradient-to-br from-blue-500 to-blue-700 rounded-full flex items-center justify-center text-white font-bold text-sm shadow">A</div>
+        </div>
+      </div>
+
+      <!-- Navigation tabs -->
+      <nav class="flex -mb-px overflow-x-auto">
+        <button @click="setTab('dashboard')" :class="['nav-tab', activeTab === 'dashboard' ? 'active' : '']">
+          <span class="flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+            </svg>
+            Dashboard
+          </span>
+        </button>
+
+        <button @click="setTab('lancamento')" :class="['nav-tab', activeTab === 'lancamento' ? 'active' : '']">
+          <span class="flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+            </svg>
+            Lançamento
+          </span>
+        </button>
+
+        <button class="nav-tab opacity-50 cursor-not-allowed">
+          <span class="flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+            </svg>
+            Histórico
+          </span>
+        </button>
+
+        <button class="nav-tab opacity-50 cursor-not-allowed">
+          <span class="flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+            </svg>
+            Configurações
+          </span>
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <!-- ══════════════════════════════════════════════
+       MAIN CONTENT
+  ══════════════════════════════════════════════ -->
+  <main class="max-w-screen-xl mx-auto px-6 py-8">
+
+    <!-- ╔══════════════════════════════════════╗
+         ║  DASHBOARD VIEW                      ║
+         ╚══════════════════════════════════════╝ -->
+    <div v-if="activeTab === 'dashboard'" class="fade-up">
+
+      <!-- Page header -->
+      <div class="flex flex-wrap items-start justify-between gap-4 mb-7">
+        <div>
+          <h1 class="text-2xl font-bold text-gray-900">Dashboard</h1>
+          <p class="text-gray-500 text-sm mt-0.5">EDF. 5 AVENIDA — Fechamento de Dezembro / 2025</p>
+        </div>
+        <div class="flex gap-2">
+          <button class="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-600 rounded-lg text-sm hover:bg-gray-50 transition-colors shadow-sm">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+            </svg>
+            Exportar PDF
+          </button>
+          <button class="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors font-medium shadow">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+            </svg>
+            Sincronizar
+          </button>
+        </div>
+      </div>
+
+      <!-- ── KPI Cards ── -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5 mb-8">
+
+        <!-- Total Arrecadado -->
+        <div class="stat-card border-l-4 border-green-500">
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Total Arrecadado</span>
+            <div class="w-9 h-9 bg-green-100 rounded-xl flex items-center justify-center">
+              <svg class="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+            </div>
+          </div>
+          <p class="text-3xl font-bold text-gray-900">{{ formatCurrency(totalArrecadado) }}</p>
+          <p class="text-xs text-green-600 font-medium mt-2">● {{ qtdPago }} boletos confirmados</p>
+        </div>
+
+        <!-- Inadimplência -->
+        <div class="stat-card border-l-4 border-red-400">
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Inadimplência</span>
+            <div class="w-9 h-9 bg-red-100 rounded-xl flex items-center justify-center">
+              <svg class="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+              </svg>
+            </div>
+          </div>
+          <p class="text-3xl font-bold text-gray-900">{{ inadimplencia.toFixed(1) }}<span class="text-lg text-gray-400">%</span></p>
+          <div class="mt-3 prog-bg">
+            <div class="prog-fill bg-red-400" :style="{ width: inadimplencia + '%' }"></div>
+          </div>
+          <p class="text-xs text-red-500 font-medium mt-1.5">{{ qtdEmAberto }} de {{ qtdFaturados }} unidades</p>
+        </div>
+
+        <!-- Total em Aberto -->
+        <div class="stat-card border-l-4 border-amber-400">
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Total em Aberto</span>
+            <div class="w-9 h-9 bg-amber-100 rounded-xl flex items-center justify-center">
+              <svg class="w-5 h-5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+            </div>
+          </div>
+          <p class="text-3xl font-bold text-gray-900">{{ formatCurrency(totalEmAberto) }}</p>
+          <p class="text-xs text-amber-600 font-medium mt-2">● {{ qtdEmAberto }} boletos pendentes</p>
+        </div>
+
+        <!-- Consumo Total -->
+        <div class="stat-card border-l-4 border-blue-500">
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Consumo do Mês</span>
+            <div class="w-9 h-9 bg-blue-100 rounded-xl flex items-center justify-center">
+              <svg class="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+              </svg>
+            </div>
+          </div>
+          <p class="text-3xl font-bold text-gray-900">{{ totalGaloes }} <span class="text-base text-gray-400 font-medium">galões</span></p>
+          <div class="flex gap-3 mt-2 text-xs text-gray-400 font-medium">
+            <span class="bg-blue-50 text-blue-600 rounded px-2 py-0.5">20L: {{ totalG20 }} un.</span>
+            <span class="bg-slate-50 text-slate-500 rounded px-2 py-0.5">10L: {{ totalG10 }} un.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Charts + Rankings ── -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+
+        <!-- Donut Chart -->
+        <div class="card p-6">
+          <h3 class="text-base font-semibold text-gray-800">Status de Pagamento</h3>
+          <p class="text-xs text-gray-400 mt-0.5 mb-4">Boletos gerados · Dezembro/2025</p>
+          <div style="position:relative; height:210px;">
+            <canvas id="paymentChart"></canvas>
+          </div>
+          <div class="grid grid-cols-2 gap-3 mt-5">
+            <div class="text-center bg-green-50 border border-green-100 rounded-xl py-3">
+              <p class="text-2xl font-bold text-green-700">{{ qtdPago }}</p>
+              <p class="text-xs text-green-600 font-medium">Pagos</p>
+            </div>
+            <div class="text-center bg-amber-50 border border-amber-100 rounded-xl py-3">
+              <p class="text-2xl font-bold text-amber-700">{{ qtdEmAberto }}</p>
+              <p class="text-xs text-amber-600 font-medium">Em Aberto</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Top 5 Ranking -->
+        <div class="card p-6 lg:col-span-2">
+          <h3 class="text-base font-semibold text-gray-800">Ranking de Consumo</h3>
+          <p class="text-xs text-gray-400 mt-0.5 mb-5">Top 5 unidades com maior valor no mês</p>
+
+          <div class="space-y-4">
+            <div v-for="(item, idx) in top5" :key="item.apto" class="flex items-center gap-3">
+
+              <!-- Medal / Rank badge -->
+              <div :class="[
+                'w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0',
+                idx === 0 ? 'bg-yellow-100 text-yellow-700 ring-2 ring-yellow-300' :
+                idx === 1 ? 'bg-slate-100 text-slate-600 ring-2 ring-slate-300' :
+                idx === 2 ? 'bg-orange-100 text-orange-700 ring-2 ring-orange-300' :
+                'bg-gray-100 text-gray-500'
+              ]">{{ idx + 1 }}</div>
+
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between mb-1.5">
+                  <span class="text-sm font-semibold text-gray-700 truncate">
+                    Apto {{ item.apto }}
+                    <span class="text-gray-400 font-normal" v-if="item.nome"> — {{ item.nome.split(' ').slice(0,2).join(' ') }}</span>
+                  </span>
+                  <span class="text-sm font-bold text-gray-900 ml-3 flex-shrink-0">{{ formatCurrency(calcTotal(item)) }}</span>
+                </div>
+                <div class="prog-bg">
+                  <div class="prog-fill bg-blue-500"
+                    :style="{ width: (calcTotal(item) / calcTotal(top5[0]) * 100) + '%' }"></div>
+                </div>
+                <p class="text-xs text-gray-400 mt-1">
+                  <span v-if="item.g20">{{ item.g20 }}× Galão 20L</span>
+                  <span v-if="item.g20 && item.g10"> + </span>
+                  <span v-if="item.g10">{{ item.g10 }}× Galão 10L</span>
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Inadimplentes Table ── -->
+      <div class="card">
+        <div class="flex items-center justify-between px-6 py-5 border-b border-gray-100">
+          <div>
+            <h3 class="text-base font-semibold text-gray-800">Inadimplentes</h3>
+            <p class="text-xs text-gray-400 mt-0.5">{{ listaInadimplentes.length }} condôminos com faturas em aberto</p>
+          </div>
+          <span class="badge bg-red-100 text-red-700 text-sm px-3 py-1">Atenção necessária</span>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full">
+            <thead>
+              <tr class="bg-gray-50 text-left">
+                <th class="px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Unidade</th>
+                <th class="px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Morador</th>
+                <th class="px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Consumo</th>
+                <th class="px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Valor</th>
+                <th class="px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Vencimento</th>
+                <th class="px-6 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Situação</th>
+                <th class="px-6 py-3"></th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-50">
+              <tr v-for="item in listaInadimplentes" :key="item.apto"
+                class="hover:bg-red-50 transition-colors cursor-pointer group">
+
+                <td class="px-6 py-4">
+                  <span class="inline-flex items-center justify-center w-14 h-8 bg-slate-100 text-slate-700 rounded-lg text-sm font-bold">
+                    {{ item.apto }}
+                  </span>
+                </td>
+
+                <td class="px-6 py-4">
+                  <span v-if="item.nome" class="text-sm font-medium text-gray-700">{{ item.nome }}</span>
+                  <span v-else class="text-sm text-gray-400 italic">Não cadastrado</span>
+                </td>
+
+                <td class="px-6 py-4 text-sm text-gray-500">
+                  <span v-if="item.g20" class="mr-2">{{ item.g20 }}× 20L</span>
+                  <span v-if="item.g10">{{ item.g10 }}× 10L</span>
+                </td>
+
+                <td class="px-6 py-4">
+                  <span class="text-sm font-bold text-gray-900">{{ formatCurrency(calcTotal(item)) }}</span>
+                </td>
+
+                <td class="px-6 py-4 text-sm text-gray-400">15/01/2026</td>
+
+                <td class="px-6 py-4">
+                  <span :class="[
+                    'badge',
+                    item.diasAtraso > 30 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                  ]">
+                    {{ item.diasAtraso > 30 ? '● Atrasado ' + item.diasAtraso + 'd' : '● Pendente' }}
+                  </span>
+                </td>
+
+                <td class="px-6 py-4 text-right">
+                  <button class="text-xs text-blue-600 hover:text-blue-800 font-semibold opacity-0 group-hover:opacity-100 transition-opacity">
+                    Acionar →
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <!-- /DASHBOARD -->
+
+
+    <!-- ╔══════════════════════════════════════╗
+         ║  LANÇAMENTO VIEW                     ║
+         ╚══════════════════════════════════════╝ -->
+    <div v-if="activeTab === 'lancamento'" class="fade-up">
+
+      <!-- Page header -->
+      <div class="flex flex-wrap items-start justify-between gap-4 mb-6">
+        <div>
+          <h1 class="text-2xl font-bold text-gray-900">Lançamento de Consumo</h1>
+          <p class="text-gray-500 text-sm mt-0.5">Registre as entregas mensais por unidade — Dezembro/2025</p>
+        </div>
+        <div class="flex gap-2">
+          <button class="px-4 py-2 bg-white border border-gray-200 text-gray-500 rounded-lg text-sm hover:bg-gray-50 transition-colors shadow-sm">
+            Cancelar
+          </button>
+          <button @click="showSuccess = true"
+            class="flex items-center gap-2 px-5 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 transition-colors font-semibold shadow">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
+            </svg>
+            Finalizar Faturamento
+          </button>
+        </div>
+      </div>
+
+      <!-- Success notification -->
+      <transition name="fade">
+        <div v-if="showSuccess"
+          class="mb-5 bg-green-50 border border-green-200 rounded-xl px-5 py-4 flex items-start gap-3 shadow-sm">
+          <svg class="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          <div class="flex-1">
+            <p class="text-sm font-bold text-green-800">Faturamento enviado com sucesso!</p>
+            <p class="text-sm text-green-700 mt-0.5">Os dados foram transmitidos para a retaguarda. Boletos serão gerados e enviados via WhatsApp / e-mail em instantes.</p>
+          </div>
+          <button @click="showSuccess = false" class="text-green-400 hover:text-green-600 transition-colors">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+      </transition>
+
+      <!-- Control bar -->
+      <div class="card p-5 mb-5">
+        <div class="flex flex-wrap items-end gap-4">
+
+          <!-- Condomínio selector -->
+          <div class="flex-1 min-w-52">
+            <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Condomínio</label>
+            <div class="relative">
+              <select class="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white pr-9 appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option selected>EDF. 5 AVENIDA</option>
+                <option>Residencial Parque Verde</option>
+                <option>Condomínio Brisa do Mar</option>
+              </select>
+              <svg class="w-4 h-4 text-gray-400 absolute right-3 top-3 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+              </svg>
+            </div>
+          </div>
+
+          <!-- Mês/Ano -->
+          <div class="min-w-44">
+            <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Referência</label>
+            <select class="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option selected>Dezembro / 2025</option>
+              <option>Janeiro / 2026</option>
+            </select>
+          </div>
+
+          <!-- Divider -->
+          <div class="hidden lg:block w-px h-10 bg-gray-100"></div>
+
+          <!-- Apartment range -->
+          <div class="flex items-end gap-2">
+            <div>
+              <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Do Apto</label>
+              <input type="number" value="101"
+                class="w-20 border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-center font-semibold">
+            </div>
+            <span class="text-gray-300 pb-2 text-lg">→</span>
+            <div>
+              <label class="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">Até Apto</label>
+              <input type="number" value="2001"
+                class="w-20 border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-center font-semibold">
+            </div>
+            <button class="px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 transition-colors font-semibold shadow">
+              Gerar Lista
+            </button>
+          </div>
+
+          <!-- Price tags -->
+          <div class="flex gap-2 ml-auto">
+            <div class="text-center bg-blue-50 border border-blue-100 rounded-xl px-3 py-2 min-w-20">
+              <p class="text-[10px] text-blue-400 font-semibold uppercase">Galão 20L</p>
+              <p class="text-sm font-bold text-blue-700">R$ 13,80</p>
+            </div>
+            <div class="text-center bg-slate-50 border border-slate-100 rounded-xl px-3 py-2 min-w-20">
+              <p class="text-[10px] text-slate-400 font-semibold uppercase">Galão 10L</p>
+              <p class="text-sm font-bold text-slate-600">R$ 6,60</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Legend -->
+      <div class="flex flex-wrap items-center gap-5 mb-3 px-1">
+        <div class="flex items-center gap-2">
+          <div class="w-3.5 h-3.5 rounded bg-amber-200 border border-amber-300"></div>
+          <span class="text-xs text-gray-500">Novo morador — todos os campos habilitados</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="w-3.5 h-3.5 rounded bg-white border border-gray-200"></div>
+          <span class="text-xs text-gray-500">Morador cadastrado — use o lápis para editar dados</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <div class="w-3.5 h-3.5 rounded bg-green-100 border border-green-200"></div>
+          <span class="text-xs text-gray-500">Pagamento confirmado</span>
+        </div>
+      </div>
+
+      <!-- Main data table -->
+      <div class="card overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full min-w-max">
+
+            <!-- Table header -->
+            <thead>
+              <tr class="bg-slate-800">
+                <th class="px-4 py-3.5 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider w-16">Apto</th>
+                <th class="px-4 py-3.5 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider w-36">CPF</th>
+                <th class="px-4 py-3.5 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">Nome do Morador</th>
+                <th class="px-4 py-3.5 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider w-36">Telefone</th>
+                <th class="px-4 py-3.5 text-center text-xs font-semibold text-slate-300 uppercase tracking-wider w-20">
+                  <span class="block">Galão</span><span class="text-blue-400">20 L</span>
+                </th>
+                <th class="px-4 py-3.5 text-center text-xs font-semibold text-slate-300 uppercase tracking-wider w-20">
+                  <span class="block">Galão</span><span class="text-blue-400">10 L</span>
+                </th>
+                <th class="px-4 py-3.5 text-right text-xs font-semibold text-slate-300 uppercase tracking-wider w-32">Total</th>
+                <th class="px-4 py-3.5 text-center text-xs font-semibold text-slate-300 uppercase tracking-wider w-28">Status</th>
+                <th class="px-4 py-3.5 w-10"></th>
+              </tr>
+            </thead>
+
+            <!-- Table body -->
+            <tbody class="divide-y divide-gray-100">
+              <tr v-for="ap in apartamentos" :key="ap.apto"
+                :class="[
+                  'transition-colors',
+                  ap.statusPgto === 'pago' ? 'bg-green-50 hover:bg-green-100' :
+                  ap.isNew ? 'row-new' : 'row-existing'
+                ]">
+
+                <!-- Apto number -->
+                <td class="px-4 py-3">
+                  <span class="font-bold text-gray-700">{{ ap.apto }}</span>
+                </td>
+
+                <!-- CPF -->
+                <td class="px-4 py-3">
+                  <input :disabled="!ap.isNew && editingApto !== ap.apto"
+                    v-model="ap.cpf" placeholder="000.000.000-00"
+                    class="tbl-input" style="width:128px">
+                </td>
+
+                <!-- Nome -->
+                <td class="px-4 py-3">
+                  <input :disabled="!ap.isNew && editingApto !== ap.apto"
+                    v-model="ap.nome" placeholder="Nome completo do morador"
+                    class="tbl-input" style="min-width:220px">
+                </td>
+
+                <!-- Telefone -->
+                <td class="px-4 py-3">
+                  <input :disabled="!ap.isNew && editingApto !== ap.apto"
+                    v-model="ap.tel" placeholder="(81) 99999-9999"
+                    class="tbl-input" style="width:128px">
+                </td>
+
+                <!-- Galão 20L -->
+                <td class="px-4 py-3 text-center">
+                  <input type="number" min="0" v-model.number="ap.g20"
+                    class="qty-input">
+                </td>
+
+                <!-- Galão 10L -->
+                <td class="px-4 py-3 text-center">
+                  <input type="number" min="0" v-model.number="ap.g10"
+                    class="qty-input">
+                </td>
+
+                <!-- Total computed -->
+                <td class="px-4 py-3 text-right">
+                  <span :class="['text-sm font-bold', calcTotal(ap) > 0 ? 'text-gray-900' : 'text-gray-200']">
+                    {{ formatCurrency(calcTotal(ap)) }}
+                  </span>
+                </td>
+
+                <!-- Status badge -->
+                <td class="px-4 py-3 text-center">
+                  <span v-if="ap.statusPgto === 'pago'"     class="badge bg-green-100 text-green-700">✓ Pago</span>
+                  <span v-else-if="ap.statusPgto === 'em-aberto'" class="badge bg-amber-100 text-amber-700">⧖ Em Aberto</span>
+                  <span v-else class="badge bg-slate-100 text-slate-400">— Sem consumo</span>
+                </td>
+
+                <!-- Edit / save button -->
+                <td class="px-3 py-3 text-center">
+                  <button v-if="!ap.isNew" @click="toggleEdit(ap)"
+                    :title="editingApto === ap.apto ? 'Salvar alterações' : 'Editar dados do morador'"
+                    class="btn-edit">
+                    <!-- Pencil -->
+                    <svg v-if="editingApto !== ap.apto" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
+                    </svg>
+                    <!-- Checkmark when editing -->
+                    <svg v-else class="w-4 h-4 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
+                    </svg>
+                  </button>
+                  <!-- "Novo" chip for new residents -->
+                  <span v-else class="text-[10px] bg-amber-200 text-amber-700 font-bold px-2 py-0.5 rounded-full">NOVO</span>
+                </td>
+              </tr>
+            </tbody>
+
+            <!-- Totals footer -->
+            <tfoot>
+              <tr class="bg-slate-800">
+                <td colspan="4" class="px-4 py-3.5 text-right text-sm font-bold text-slate-300 uppercase tracking-wide">
+                  Totais do Mês
+                </td>
+                <td class="px-4 py-3.5 text-center text-base font-bold text-white">{{ totalG20 }}</td>
+                <td class="px-4 py-3.5 text-center text-base font-bold text-white">{{ totalG10 }}</td>
+                <td class="px-4 py-3.5 text-right text-base font-bold text-green-400">{{ formatCurrency(totalGeral) }}</td>
+                <td colspan="2"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      <!-- Bottom summary bar -->
+      <div class="mt-4 grid grid-cols-3 gap-4">
+        <div class="bg-green-50 border border-green-100 rounded-xl px-4 py-3 text-center">
+          <p class="text-xs text-green-500 font-semibold uppercase">Arrecadado</p>
+          <p class="text-lg font-bold text-green-700">{{ formatCurrency(totalArrecadado) }}</p>
+        </div>
+        <div class="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 text-center">
+          <p class="text-xs text-amber-500 font-semibold uppercase">Em Aberto</p>
+          <p class="text-lg font-bold text-amber-700">{{ formatCurrency(totalEmAberto) }}</p>
+        </div>
+        <div class="bg-slate-50 border border-slate-100 rounded-xl px-4 py-3 text-center">
+          <p class="text-xs text-slate-400 font-semibold uppercase">Total Faturado</p>
+          <p class="text-lg font-bold text-slate-700">{{ formatCurrency(totalGeral) }}</p>
+        </div>
+      </div>
+    </div>
+    <!-- /LANÇAMENTO -->
+
+  </main>
+</div><!-- /#app -->
+
+
+<!-- ══════════════════════════════════════════════
+     VUE 3 APPLICATION
+══════════════════════════════════════════════ -->
+<script>
+const { createApp } = Vue;
+
+createApp({
+  data() {
+    return {
+      activeTab: 'dashboard',
+      editingApto: null,
+      showSuccess: false,
+      chart: null,
+
+      /* Preços unitários conforme planilha */
+      precoG20: 13.80,
+      precoG10: 6.60,
+
+      /*
+       * Dados reais extraídos de: ESPELHO 5 AVENIDA.xlsx – Aba ESPELHO
+       * Mês de referência: Dezembro/2025
+       * Colunas: apto, cpf (mascarado), nome, tel (mock), g20, g10, isNew, statusPgto, diasAtraso
+       *
+       * isNew = true  → Morador novo ou sem cadastro anterior (campos editáveis)
+       * isNew = false → Morador já cadastrado em meses anteriores (campos bloqueados, editar via lápis)
+       * statusPgto: 'pago' | 'em-aberto' | 'sem-consumo'
+       */
+      apartamentos: [
+        { apto:  101, cpf: '046.***.***-80', nome: 'Arnaldo Xavier C. de Albuquerque Neto', tel: '(81) 98754-3201', g20:  0, g10:  0, isNew: false, statusPgto: 'sem-consumo', diasAtraso:  0 },
+        { apto:  201, cpf: '',               nome: '',                                       tel: '',               g20:  0, g10:  0, isNew: true,  statusPgto: 'sem-consumo', diasAtraso:  0 },
+        { apto:  301, cpf: '825.***.***-53', nome: 'Estefânia M. de Nazaré Moura Bezerra',  tel: '(81) 99623-4482', g20:  1, g10: 12, isNew: true,  statusPgto: 'pago',        diasAtraso:  0 },
+        { apto:  401, cpf: '312.***.***-91', nome: 'Ana Helena T. de Melo da Silva',        tel: '(81) 98831-0044', g20: 15, g10:  3, isNew: false, statusPgto: 'pago',        diasAtraso:  0 },
+        { apto:  501, cpf: '',               nome: '',                                       tel: '',               g20:  2, g10:  0, isNew: true,  statusPgto: 'em-aberto',   diasAtraso: 36 },
+        { apto:  601, cpf: '019.***.***-77', nome: 'Giorgia Duarte Emereciano',             tel: '(81) 99742-5511', g20: 18, g10:  0, isNew: false, statusPgto: 'pago',        diasAtraso:  0 },
+        { apto:  701, cpf: '553.***.***-20', nome: 'Romualdo Romana Cavalcanti',            tel: '(81) 98560-1230', g20:  0, g10:  0, isNew: false, statusPgto: 'sem-consumo', diasAtraso:  0 },
+        { apto:  801, cpf: '441.***.***-68', nome: 'Luiz de Sá Monteiro',                  tel: '(81) 99134-8876', g20:  7, g10:  0, isNew: false, statusPgto: 'pago',        diasAtraso:  0 },
+        { apto:  901, cpf: '',               nome: '',                                       tel: '',               g20:  0, g10:  7, isNew: true,  statusPgto: 'em-aberto',   diasAtraso: 36 },
+        { apto: 1001, cpf: '728.***.***-33', nome: 'Juliano Mota',                         tel: '(81) 99987-6655', g20:  6, g10:  0, isNew: false, statusPgto: 'pago',        diasAtraso:  0 },
+        { apto: 1101, cpf: '',               nome: '',                                       tel: '',               g20:  0, g10:  0, isNew: true,  statusPgto: 'sem-consumo', diasAtraso:  0 },
+        { apto: 1201, cpf: '188.***.***-44', nome: 'Maria das Graças Carneiro',            tel: '(81) 98456-7788', g20:  5, g10:  0, isNew: false, statusPgto: 'pago',        diasAtraso:  0 },
+        { apto: 1301, cpf: '',               nome: '',                                       tel: '',               g20:  0, g10:  0, isNew: true,  statusPgto: 'sem-consumo', diasAtraso:  0 },
+        { apto: 1401, cpf: '534.***.***-16', nome: 'Roberto Bezerra da Silva',             tel: '(81) 99321-4455', g20:  0, g10:  0, isNew: false, statusPgto: 'sem-consumo', diasAtraso:  0 },
+        { apto: 1501, cpf: '',               nome: '',                                       tel: '',               g20:  5, g10:  4, isNew: true,  statusPgto: 'em-aberto',   diasAtraso: 36 },
+        { apto: 1601, cpf: '549.***.***-84', nome: 'Pedro Jorge Lima de Souza',            tel: '(81) 98277-3344', g20:  8, g10:  0, isNew: false, statusPgto: 'pago',        diasAtraso:  0 },
+        { apto: 1701, cpf: '671.***.***-55', nome: 'José Américo Mendonça',                tel: '(81) 99603-2211', g20:  4, g10:  0, isNew: false, statusPgto: 'em-aberto',   diasAtraso: 20 },
+        { apto: 1801, cpf: '395.***.***-72', nome: 'Deivy Rushansky',                      tel: '(81) 99410-6677', g20: 11, g10:  0, isNew: false, statusPgto: 'pago',        diasAtraso:  0 },
+        { apto: 1901, cpf: '',               nome: '',                                       tel: '',               g20:  6, g10:  0, isNew: true,  statusPgto: 'em-aberto',   diasAtraso: 36 },
+        { apto: 2001, cpf: '',               nome: '',                                       tel: '',               g20: 14, g10:  0, isNew: true,  statusPgto: 'em-aberto',   diasAtraso: 36 },
+      ]
+    };
+  },
+
+  computed: {
+    /* ─── Totals ─── */
+    totalG20()  { return this.apartamentos.reduce((s, a) => s + (a.g20 || 0), 0); },
+    totalG10()  { return this.apartamentos.reduce((s, a) => s + (a.g10 || 0), 0); },
+    totalGaloes() { return this.totalG20 + this.totalG10; },
+    totalGeral()  { return this.apartamentos.reduce((s, a) => s + this.calcTotal(a), 0); },
+
+    totalArrecadado() {
+      return this.apartamentos.filter(a => a.statusPgto === 'pago')
+        .reduce((s, a) => s + this.calcTotal(a), 0);
+    },
+    totalEmAberto() {
+      return this.apartamentos.filter(a => a.statusPgto === 'em-aberto')
+        .reduce((s, a) => s + this.calcTotal(a), 0);
+    },
+
+    /* ─── Counts ─── */
+    qtdPago()      { return this.apartamentos.filter(a => a.statusPgto === 'pago').length; },
+    qtdEmAberto()  { return this.apartamentos.filter(a => a.statusPgto === 'em-aberto').length; },
+    qtdFaturados() { return this.apartamentos.filter(a => (a.g20 + a.g10) > 0).length; },
+
+    inadimplencia() {
+      if (this.qtdFaturados === 0) return 0;
+      return (this.qtdEmAberto / this.qtdFaturados) * 100;
+    },
+
+    /* ─── Dashboard lists ─── */
+    top5() {
+      return [...this.apartamentos]
+        .filter(a => (a.g20 + a.g10) > 0)
+        .sort((a, b) => this.calcTotal(b) - this.calcTotal(a))
+        .slice(0, 5);
+    },
+    listaInadimplentes() {
+      return this.apartamentos.filter(a => a.statusPgto === 'em-aberto');
+    }
+  },
+
+  methods: {
+    calcTotal(ap) {
+      return ((ap.g20 || 0) * this.precoG20) + ((ap.g10 || 0) * this.precoG10);
+    },
+
+    formatCurrency(v) {
+      return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
+    },
+
+    toggleEdit(ap) {
+      this.editingApto = this.editingApto === ap.apto ? null : ap.apto;
+    },
+
+    setTab(tab) {
+      this.activeTab = tab;
+      if (tab === 'dashboard') {
+        this.$nextTick(() => this.initChart());
+      }
+    },
+
+    initChart() {
+      const canvas = document.getElementById('paymentChart');
+      if (!canvas) return;
+      if (this.chart) { this.chart.destroy(); this.chart = null; }
+
+      this.chart = new Chart(canvas, {
+        type: 'doughnut',
+        data: {
+          labels: ['Boletos Pagos', 'Em Aberto'],
+          datasets: [{
+            data: [this.qtdPago, this.qtdEmAberto],
+            backgroundColor: ['#22c55e', '#f59e0b'],
+            hoverBackgroundColor: ['#16a34a', '#d97706'],
+            borderWidth: 0,
+            hoverOffset: 8
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'bottom',
+              labels: { padding: 18, font: { size: 12, weight: '600' }, color: '#374151' }
+            },
+            tooltip: {
+              callbacks: {
+                label: ctx => `  ${ctx.label}: ${ctx.raw} boletos`
+              }
+            }
+          },
+          cutout: '68%',
+          animation: { animateRotate: true, duration: 800 }
+        }
+      });
+    }
+  },
+
+  mounted() {
+    this.$nextTick(() => this.initChart());
+  }
+
+}).mount('#app');
+</script>
+</body>
+</html>
