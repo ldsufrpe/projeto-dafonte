@@ -1,0 +1,56 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: fontegest
+      POSTGRES_USER: fontegest
+      POSTGRES_PASSWORD: fontegest
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"   # exposto apenas para desenvolvimento local
+    networks:
+      - fontegest_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fontegest"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://fontegest:fontegest@db:5432/fontegest
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - evidencias_data:/evidencias
+    networks:
+      - fontegest_network
+    # API NOT exposed to host — accessed via Nginx proxy
+
+  nginx:
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+    ports:
+      - "8080:80"
+    volumes:
+      - evidencias_data:/evidencias:ro
+    depends_on:
+      - api
+    networks:
+      - fontegest_network
+
+volumes:
+  pgdata:
+  evidencias_data:
+
+networks:
+  fontegest_network:
+    driver: bridge

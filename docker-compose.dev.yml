@@ -1,0 +1,20 @@
+# Overrides para desenvolvimento — hot-reload no backend, frontend fora do Docker
+# Uso:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up db api
+#   cd frontend && npm run dev
+#
+# A API fica em localhost:8000 (exposta diretamente)
+# O Vite (localhost:5173) já tem proxy /api → localhost:8000 configurado no vite.config.ts
+
+services:
+  api:
+    volumes:
+      - ./backend:/app          # monta código-fonte diretamente (sobrescreve COPY do Dockerfile)
+      - evidencias_data:/evidencias
+    ports:
+      - "8000:8000"             # expõe a API diretamente para o Vite proxy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://fontegest:fontegest@db:5432/fontegest
+    command: >
+      sh -c "uv run alembic upgrade head &&
+             uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"

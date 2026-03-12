@@ -1,0 +1,340 @@
+{
+    "users": [
+        {
+            "username": "DEMO",
+            "password": "demo123",
+            "full_name": "Jose Daniel",
+            "email": null,
+            "is_admin": true
+        },
+        {
+            "username": "JOAO",
+            "password": "joao123",
+            "full_name": "Joao",
+            "email": null,
+            "is_admin": false
+        }
+    ],
+    "condominiums": [
+        {
+            "erp_code": "{MOCK-5AV-0001}",
+            "name": "EDF. 5 AVENIDA",
+            "address": "Av. Principal, 500",
+            "prices": {
+                "INDAIA20LT": "13.80",
+                "INDAIA10L": "6.60",
+                "IAIA20L": null
+            }
+        },
+        {
+            "erp_code": "{MOCK-SOL-0002}",
+            "name": "EDF. SOLAR",
+            "address": "Rua das Flores, 120",
+            "prices": {
+                "INDAIA20LT": "14.00",
+                "INDAIA10L": null,
+                "IAIA20L": "11.50"
+            }
+        }
+    ],
+    "product_catalog": [
+        {
+            "erp_product_code": "INDAIA20LT",
+            "name": "Galão 20L INDAIÁ",
+            "capacity_liters": 20,
+            "sort_order": 1
+        },
+        {
+            "erp_product_code": "INDAIA10L",
+            "name": "Galão 10L INDAIÁ",
+            "capacity_liters": 10,
+            "sort_order": 2
+        },
+        {
+            "erp_product_code": "IAIA20L",
+            "name": "Galão 20L IAIÁ",
+            "capacity_liters": 20,
+            "sort_order": 3
+        }
+    ],
+    "residents": {
+        "{MOCK-5AV-0001}": [
+            {
+                "unit_code": "101",
+                "resident_name": "Maria Silva",
+                "cpf_masked": "***.***.***-12",
+                "is_current": true
+            },
+            {
+                "unit_code": "201",
+                "resident_name": "João Santos",
+                "cpf_masked": "***.***.***-34",
+                "is_current": true
+            },
+            {
+                "unit_code": "301",
+                "resident_name": "Ana Oliveira",
+                "cpf_masked": "",
+                "is_current": true
+            },
+            {
+                "unit_code": "401",
+                "resident_name": "Carlos Souza",
+                "cpf_masked": "***.***.***-56",
+                "is_current": true
+            },
+            {
+                "unit_code": "501",
+                "resident_name": "Fernanda Lima",
+                "cpf_masked": "",
+                "is_current": true
+            },
+            {
+                "unit_code": "601",
+                "resident_name": "Paulo Rocha",
+                "cpf_masked": "***.***.***-78",
+                "is_current": true
+            },
+            {
+                "unit_code": "701",
+                "resident_name": "Lucia Ferreira",
+                "cpf_masked": "",
+                "is_current": true
+            },
+            {
+                "unit_code": "801",
+                "resident_name": "Roberto Alves",
+                "cpf_masked": "***.***.***-90",
+                "is_current": true
+            },
+            {
+                "unit_code": "901",
+                "resident_name": "Sandra Costa",
+                "cpf_masked": "",
+                "is_current": true
+            },
+            {
+                "unit_code": "1001",
+                "resident_name": "Marcos Dias",
+                "cpf_masked": "***.***.***-11",
+                "is_current": true
+            },
+            {
+                "unit_code": "1101",
+                "resident_name": "Patrícia Nunes",
+                "cpf_masked": "",
+                "is_current": true
+            },
+            {
+                "unit_code": "1201",
+                "resident_name": "Ricardo Melo",
+                "cpf_masked": "***.***.***-22",
+                "is_current": true
+            },
+            {
+                "unit_code": "1301",
+                "resident_name": "Camila Ramos",
+                "cpf_masked": "",
+                "is_current": true
+            },
+            {
+                "unit_code": "1401",
+                "resident_name": "Eduardo Pinto",
+                "cpf_masked": "***.***.***-33",
+                "is_current": true
+            },
+            {
+                "unit_code": "1501",
+                "resident_name": "Beatriz Gomes",
+                "cpf_masked": "",
+                "is_current": true
+            },
+            {
+                "unit_code": "1601",
+                "resident_name": "Felipe Moura",
+                "cpf_masked": "***.***.***-44",
+                "is_current": true
+            },
+            {
+                "unit_code": "1701",
+                "resident_name": "Juliana Castro",
+                "cpf_masked": "",
+                "is_current": true
+            },
+            {
+                "unit_code": "1801",
+                "resident_name": "André Cardoso",
+                "cpf_masked": "***.***.***-55",
+                "is_current": true
+            },
+            {
+                "unit_code": "1901",
+                "resident_name": "Natalia Araujo",
+                "cpf_masked": "",
+                "is_current": true
+            },
+            {
+                "unit_code": "2001",
+                "resident_name": "Thiago Barros",
+                "cpf_masked": "***.***.***-66",
+                "is_current": true
+            }
+        ],
+        "{MOCK-SOL-0002}": [
+            {
+                "unit_code": "101",
+                "resident_name": "Helena Martins",
+                "cpf_masked": "***.***.***-77",
+                "is_current": true
+            },
+            {
+                "unit_code": "201",
+                "resident_name": "Gabriel Vieira",
+                "cpf_masked": "",
+                "is_current": true
+            },
+            {
+                "unit_code": "301",
+                "resident_name": "Clara Ribeiro",
+                "cpf_masked": "***.***.***-88",
+                "is_current": true
+            },
+            {
+                "unit_code": "401",
+                "resident_name": "Daniel Pereira",
+                "cpf_masked": "",
+                "is_current": true
+            },
+            {
+                "unit_code": "501",
+                "resident_name": "Laura Mendes",
+                "cpf_masked": "***.***.***-99",
+                "is_current": true
+            }
+        ]
+    },
+    "payment_status": {
+        "{MOCK-5AV-0001}_2025-12": [
+            {
+                "unit_code": "101",
+                "status": "paid",
+                "erp_invoice_id": "NF-001234",
+                "days_overdue": 0
+            },
+            {
+                "unit_code": "201",
+                "status": "paid",
+                "erp_invoice_id": "NF-001235",
+                "days_overdue": 0
+            },
+            {
+                "unit_code": "301",
+                "status": "open",
+                "erp_invoice_id": "NF-001236",
+                "days_overdue": 15
+            },
+            {
+                "unit_code": "401",
+                "status": "paid",
+                "erp_invoice_id": "NF-001237",
+                "days_overdue": 0
+            },
+            {
+                "unit_code": "501",
+                "status": "open",
+                "erp_invoice_id": "NF-001238",
+                "days_overdue": 30
+            },
+            {
+                "unit_code": "601",
+                "status": "paid",
+                "erp_invoice_id": "NF-001239",
+                "days_overdue": 0
+            },
+            {
+                "unit_code": "701",
+                "status": "no_consumption",
+                "erp_invoice_id": null,
+                "days_overdue": 0
+            },
+            {
+                "unit_code": "801",
+                "status": "paid",
+                "erp_invoice_id": "NF-001241",
+                "days_overdue": 0
+            },
+            {
+                "unit_code": "901",
+                "status": "open",
+                "erp_invoice_id": "NF-001242",
+                "days_overdue": 5
+            },
+            {
+                "unit_code": "1001",
+                "status": "paid",
+                "erp_invoice_id": "NF-001243",
+                "days_overdue": 0
+            },
+            {
+                "unit_code": "1101",
+                "status": "paid",
+                "erp_invoice_id": "NF-001244",
+                "days_overdue": 0
+            },
+            {
+                "unit_code": "1201",
+                "status": "open",
+                "erp_invoice_id": "NF-001245",
+                "days_overdue": 45
+            },
+            {
+                "unit_code": "1301",
+                "status": "paid",
+                "erp_invoice_id": "NF-001246",
+                "days_overdue": 0
+            },
+            {
+                "unit_code": "1401",
+                "status": "paid",
+                "erp_invoice_id": "NF-001247",
+                "days_overdue": 0
+            },
+            {
+                "unit_code": "1501",
+                "status": "no_consumption",
+                "erp_invoice_id": null,
+                "days_overdue": 0
+            },
+            {
+                "unit_code": "1601",
+                "status": "paid",
+                "erp_invoice_id": "NF-001249",
+                "days_overdue": 0
+            },
+            {
+                "unit_code": "1701",
+                "status": "open",
+                "erp_invoice_id": "NF-001250",
+                "days_overdue": 20
+            },
+            {
+                "unit_code": "1801",
+                "status": "paid",
+                "erp_invoice_id": "NF-001251",
+                "days_overdue": 0
+            },
+            {
+                "unit_code": "1901",
+                "status": "paid",
+                "erp_invoice_id": "NF-001252",
+                "days_overdue": 0
+            },
+            {
+                "unit_code": "2001",
+                "status": "open",
+                "erp_invoice_id": "NF-001253",
+                "days_overdue": 8
+            }
+        ]
+    }
+}

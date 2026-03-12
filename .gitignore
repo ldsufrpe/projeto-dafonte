@@ -1,13 +1,41 @@
-.idea/
+# Python
 __pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
 venv/
+dist/
+build/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+.coverage
+
+# uv
+uv.lock
+
+# Environment
 .env
-.DS_Store
-*.pyc
-*.pyo
-*.pyd
+.env.*
+!.env.example
+
+# Node / Vue
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.local
+
+# Editors
+.idea/
+.vscode/
 *.swp
 *.swo
-*.egg-info/
-.env/
-node_modules/
+.DS_Store
+
+# Docker
+*.pid
+
+# Secrets
+*.pem
+*.key
