@@ -198,8 +198,7 @@ function triggerCsvDownload(csv: string, filename: string) {
   URL.revokeObjectURL(url)
 }
 
-onMounted(() => loadMonths())
-watch(() => condoStore.activeCondominiumId, () => loadMonths())
+watch(() => condoStore.activeCondominiumId, () => loadMonths(), { immediate: true })
 </script>
 
 <template>

@@ -1,17 +1,34 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
-import { Doughnut } from 'vue-chartjs'
+import { Doughnut, Bar } from 'vue-chartjs'
 import {
   Chart as ChartJS,
   ArcElement,
   Tooltip,
   Legend,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
 } from 'chart.js'
 import { useCondominiumStore } from '@/stores/condominium'
 import { useDashboardStore } from '@/stores/dashboard'
 import apiClient from '@/api/client'
 
-ChartJS.register(ArcElement, Tooltip, Legend)
+ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title)
+
+interface TrendPoint {
+  reference_month: string
+  total_billed: number
+  total_collected: number
+  total_open: number
+  default_rate: number
+}
+
+interface CommissionData {
+  commission_due: number
+  total_received: number
+}
 
 const condoStore = useCondominiumStore()
 const dash = useDashboardStore()
@@ -21,6 +38,8 @@ const currentMonth = ref(`${now.getFullYear()}-${String(now.getMonth() + 1).padS
 const isMockMode = ref(false)
 const toastMessage = ref('')
 const toastVisible = ref(false)
+const trend = ref<TrendPoint[]>([])
+const commission = ref<CommissionData | null>(null)
 
 function showToast(msg: string) {
   toastMessage.value = msg
@@ -32,17 +51,24 @@ async function load() {
   const id = condoStore.activeCondominiumId
   if (!id) return
   await dash.fetchDashboard(id, currentMonth.value)
+  try {
+    const { data } = await apiClient.get<{ points: TrendPoint[] }>(`/dashboard/trend/${id}`)
+    trend.value = data.points ?? []
+  } catch { /* optional */ }
+  try {
+    const { data } = await apiClient.get<CommissionData>(`/finance/commission/${id}/${currentMonth.value}`)
+    commission.value = data
+  } catch { /* optional */ }
 }
 
 onMounted(async () => {
-  await load()
   try {
     const { data } = await apiClient.get('/erp/mode')
     isMockMode.value = data.is_mock
   } catch { /* ignore */ }
 })
 
-watch([() => condoStore.activeCondominiumId, currentMonth], () => load())
+watch([() => condoStore.activeCondominiumId, currentMonth], () => load(), { immediate: true })
 
 async function handleSync() {
   const id = condoStore.activeCondominiumId
@@ -84,10 +110,59 @@ function fmt(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
+function formatMonth(ym: string): string {
+  if (!ym) return ''
+  const [year, month] = ym.split('-')
+  const names = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+  return `${names[parseInt(month || '1') - 1]}/${year?.slice(2)}`
+}
+
+const trendChartData = computed(() => ({
+  labels: trend.value.map(p => formatMonth(p.reference_month)),
+  datasets: [
+    {
+      label: 'Faturado',
+      data: trend.value.map(p => p.total_billed),
+      backgroundColor: '#6366f1bb',
+      borderRadius: 4,
+    },
+    {
+      label: 'Arrecadado',
+      data: trend.value.map(p => p.total_collected),
+      backgroundColor: '#10b981bb',
+      borderRadius: 4,
+    },
+  ],
+}))
+
+const trendChartOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: { position: 'bottom' as const, labels: { boxWidth: 12, padding: 16 } },
+    title: { display: false },
+    tooltip: {
+      callbacks: {
+        label: (ctx: { dataset: { label?: string }; parsed: { y: number | null } }) =>
+          ` ${ctx.dataset.label}: ${(ctx.parsed.y ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`,
+      },
+    },
+  },
+  scales: {
+    x: { grid: { display: false } },
+    y: {
+      ticks: {
+        callback: (v: string | number) =>
+          Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }),
+      },
+    },
+  },
+}
+
 const medals = ['🥇', '🥈', '🥉', '4', '5']
 
 function defaulterBadge(d: { status: string; days_overdue: number }): { label: string; classes: string } {
-  if (d.status === 'submitted') return { label: 'Aguardando ERP', classes: 'bg-blue-100 text-blue-700' }
+  if (d.status === 'submitted') return { label: 'Aguardando Retaguarda', classes: 'bg-blue-100 text-blue-700' }
   if (d.days_overdue > 30) return { label: `Atrasado ${d.days_overdue}d`, classes: 'bg-red-100 text-red-700' }
   if (d.days_overdue > 0) return { label: `Atrasado ${d.days_overdue}d`, classes: 'bg-amber-100 text-amber-700' }
   return { label: 'Em Aberto', classes: 'bg-amber-100 text-amber-700' }
@@ -175,7 +250,7 @@ function defaulterBadge(d: { status: string; days_overdue: number }): { label: s
       </div>
 
       <!-- KPI Cards -->
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div class="grid grid-cols-2 gap-4 mb-6" :class="commission ? 'lg:grid-cols-5' : 'lg:grid-cols-4'">
         <div class="bg-white rounded-xl border border-gray-200 shadow-sm px-5 py-4" style="border-left: 4px solid #10b981">
           <p class="text-xs text-gray-500 font-medium mb-1">Total Arrecadado</p>
           <p class="text-2xl font-bold text-emerald-700">{{ fmt(dash.data.total_collected) }}</p>
@@ -195,6 +270,19 @@ function defaulterBadge(d: { status: string; days_overdue: number }): { label: s
           <p class="text-xs text-gray-500 font-medium mb-1">Consumo do Mês</p>
           <p class="text-2xl font-bold text-indigo-700">{{ fmt(dash.data.total_billed) }}</p>
           <p class="text-xs text-gray-400 mt-1">{{ dash.data.qty_billed }} unid. faturadas</p>
+        </div>
+        <div v-if="commission" class="bg-white rounded-xl border border-gray-200 shadow-sm px-5 py-4" style="border-left: 4px solid #0ea5e9">
+          <p class="text-xs text-gray-500 font-medium mb-1">Comissão do Mês</p>
+          <p class="text-2xl font-bold text-sky-700">{{ fmt(commission.commission_due) }}</p>
+          <p class="text-xs text-gray-400 mt-1">sobre {{ fmt(commission.total_received) }}</p>
+        </div>
+      </div>
+
+      <!-- Trend chart -->
+      <div v-if="trend.length > 0" class="bg-white rounded-xl border border-gray-200 shadow-sm p-5 mb-5">
+        <h3 class="text-sm font-semibold text-gray-700 mb-4">Evolução dos Últimos 6 Meses</h3>
+        <div class="h-52">
+          <Bar :data="trendChartData" :options="trendChartOptions" />
         </div>
       </div>
 

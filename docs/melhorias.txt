@@ -1,12 +1,30 @@
-1. Resolva o erro da pagina FinanceiroViews
-2. Adiciona nas impletação a opção de configurar a comissão de cada condominio
-3. Consumo interno do condominio (Está implementado?)
-4. Operador não implanta condominios, apenas o gerente.
-5. No momento da implantação do condominio o gerente deve adicionar um valor minimo de estoque 
+1. Adiciona nas implantação a opção de configurar a comissão de cada condominio
+2. Operador não implanta condominios, apenas o gerente.
+3. No momento da implantação do condominio o gerente deve adicionar um valor minimo de estoque 
 para gerar alerta, isso precisa ser implementado.
+4. Como fica o momento de gerar lista de range dos condôminos? No wizard? Lá eu vi apenas a opção de importar 
+5. A implantação de um condominio deve ser finalizada wizard com todos os requisitos minimos. Da forma que está o 
+admin pula todos os passos. A consequencia, o painel não tem mais o botão de implantar e o condominio fica sem a 
+possibilidade de ser implantado.
+
+
 6. Preciso entender quando é que um morador é considerado inadimplente. O fluxo está implementado? 
-7. Como fica o momento de gerar lista de range dos condôminos? No wizard? Lá eu vi apenas a opção de importar 
-deve ter uma opção de condominio novo. A inserção do morador de cada apartamento deve ser feita pelo Operador 
+deve ter uma opção de con
+dominio novo. A inserção do morador de cada apartamento deve ser feita pelo Operador 
 quando o condominio é novo.
 8. Fazer uma revisão dos alertas. Ninguem deve receber notificações genéricas.
-9. Manter uma liguagem simples e eficiente. Evitar termos ingles como go-live.
+
+
+11. Pagina de Lançamento: Reage mal a edição de numero de galões e só volta ao normal 
+depois de atualizar a pagina
+12. Garantir que data/mes/ano de todo o sistema esteja no padrão pt-br (incluindo graficos, ex. Estoque)
+13. FinanceiroView está estranho. Não está destacada o que é financeiro geral o que é financeiro do condominio. Corfiamar.
+
+
+
+ Consumo interno do condominio (Está implementado?)
+ 9. Manter uma liguagem simples e eficiente. Evitar termos ingles como go-live.
+
+ O Estoque vai ser alimentado no ERP. Vamos precisar criar um GET para buscar essa informações de todos os condominios. Por enquanto não vamos conectar ao ERP. POrtanto, simule um GET local para testes. Crie um mock com estoque destes co
+
+ Erro ao editar um morador: An unexpected error occurred. 

@@ -29,8 +29,8 @@ body {
 
 /* ── Navigation Tabs ── */
 .nav-tab {
-  padding: 0.85rem 1.2rem;
-  font-size: 0.85rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.8rem;
   border-bottom: 3px solid transparent;
   cursor: pointer;
   white-space: nowrap;
@@ -166,6 +166,20 @@ body {
 }
 .fade-up {
   animation: fadeUp 0.25s ease-out;
+}
+
+/* ── Vue Transition: fade (used by modals) ── */
+.fade-enter-active, .fade-leave-active { transition: opacity 0.18s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+
+/* ── Hide native number input spinners (quantity cells in billing table) ── */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
 }
 
 /* ── Scrollbar ── */

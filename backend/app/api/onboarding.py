@@ -8,16 +8,16 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import require_admin
 from app.models.billing import Billing, BillingItem, BillingStatus
-from app.models.condominium import Condominium
+from app.models.condominium import CommissionRate, CommissionType, Condominium, OperatorAssignment
 from app.models.onboarding import LegacyDebt, OnboardingImport, OnboardingStatus
 from app.models.product import Product
-from app.models.stock import StockEntry, StockEntryType
+from app.models.stock import StockAlertThreshold, StockEntry, StockEntryType
 from app.models.unit import Resident, Unit
 from app.models.user import User
 
@@ -53,6 +53,411 @@ async def _read_rows(file: UploadFile) -> list[dict]:
     text = content.decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(io.StringIO(text))
     return [{_normalize_key(k): (v or "").strip() for k, v in row.items()} for row in reader]
+
+
+# ── PATCH commission ──────────────────────────────────────────────────
+
+
+class PerProductRate(BaseModel):
+    product_id: int
+    value_per_unit: float
+
+
+class CommissionRequest(BaseModel):
+    commission_type: str  # fixed | percent | per_unit
+    commission_value: Optional[float] = None
+    per_product_rates: Optional[list[PerProductRate]] = None
+
+
+@router.patch("/{condominium_id}/onboarding/commission")
+async def set_commission(
+    condominium_id: int,
+    body: CommissionRequest,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Configure commission type and value for a condominium during onboarding."""
+    condo = await db.get(Condominium, condominium_id)
+    if not condo:
+        raise HTTPException(status_code=404, detail="Condomínio não encontrado")
+
+    try:
+        ctype = CommissionType(body.commission_type)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"Tipo de comissão inválido: '{body.commission_type}'")
+
+    condo.commission_type = ctype
+    condo.commission_value = Decimal(str(body.commission_value)) if body.commission_value is not None else None
+
+    if ctype == CommissionType.per_unit and body.per_product_rates:
+        today = date.today()
+        for rate in body.per_product_rates:
+            existing = await db.execute(
+                select(CommissionRate).where(
+                    CommissionRate.condominium_id == condo.id,
+                    CommissionRate.product_id == rate.product_id,
+                    CommissionRate.valid_from == today,
+                )
+            )
+            cr = existing.scalar_one_or_none()
+            if cr:
+                cr.value_per_unit = Decimal(str(rate.value_per_unit))
+            else:
+                db.add(CommissionRate(
+                    condominium_id=condo.id,
+                    product_id=rate.product_id,
+                    value_per_unit=Decimal(str(rate.value_per_unit)),
+                    valid_from=today,
+                ))
+
+    await db.commit()
+    return {"condominium_id": condo.id, "commission_type": ctype.value, "commission_value": float(condo.commission_value or 0)}
+
+
+# ── POST generate-units ──────────────────────────────────────────────
+
+
+class UnitRange(BaseModel):
+    prefix: Optional[str] = ""
+    start: int
+    end: int
+
+
+class GenerateUnitsRequest(BaseModel):
+    ranges: list[UnitRange]
+
+
+@router.post("/{condominium_id}/onboarding/generate-units")
+async def generate_units(
+    condominium_id: int,
+    body: GenerateUnitsRequest,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Generate units by numeric range. Idempotent: skips existing unit codes."""
+    condo = await db.get(Condominium, condominium_id)
+    if not condo:
+        raise HTTPException(status_code=404, detail="Condomínio não encontrado")
+
+    created = 0
+    skipped = 0
+    total_requested = 0
+
+    for r in body.ranges:
+        if r.end < r.start:
+            raise HTTPException(status_code=422, detail=f"Faixa inválida: {r.start} > {r.end}")
+        count = r.end - r.start + 1
+        if count > 2000:
+            raise HTTPException(status_code=422, detail=f"Limite de 2000 unidades por faixa excedido ({count})")
+        total_requested += count
+
+        padding = len(str(r.end))
+        prefix = r.prefix or ""
+
+        for n in range(r.start, r.end + 1):
+            code = f"{prefix}{str(n).zfill(padding)}"
+            if len(code) > 20:
+                raise HTTPException(status_code=422, detail=f"Código de unidade muito longo: '{code}' (máx 20 caracteres)")
+            existing = await db.execute(
+                select(Unit).where(Unit.condominium_id == condo.id, Unit.unit_code == code)
+            )
+            if existing.scalar_one_or_none():
+                skipped += 1
+                continue
+            db.add(Unit(condominium_id=condo.id, unit_code=code, unit_prefix=prefix, unit_number=n, is_active=True))
+            created += 1
+
+    await db.flush()
+
+    # Count total units
+    total_result = await db.execute(
+        select(func.count(Unit.id)).where(Unit.condominium_id == condo.id, Unit.is_active.is_(True))
+    )
+    total_units = total_result.scalar() or 0
+
+    await db.commit()
+    return {"created": created, "skipped": skipped, "total_units": total_units}
+
+
+# ── POST generate-units-by-floor ─────────────────────────────────────
+
+
+class FloorBlock(BaseModel):
+    prefix: Optional[str] = ""
+    floor_start: int  # label do primeiro andar (ex: 1 ou 10)
+    floor_end: int    # label do último andar (ex: 9 ou 20)
+    apts_per_floor: int
+
+
+class GenerateUnitsByFloorRequest(BaseModel):
+    blocks: list[FloorBlock]
+    clear_before: bool = False  # se True, apaga todas as unidades sem moradores antes de gerar
+
+
+@router.post("/{condominium_id}/onboarding/generate-units-by-floor")
+async def generate_units_by_floor(
+    condominium_id: int,
+    body: GenerateUnitsByFloorRequest,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Generate units using Brazilian floor numbering (floor_label × 100 + apt).
+    Supports multiple blocks/towers with different floor ranges.
+    clear_before=True removes all units without residents before generating."""
+    condo = await db.get(Condominium, condominium_id)
+    if not condo:
+        raise HTTPException(status_code=404, detail="Condomínio não encontrado")
+
+    if body.clear_before:
+        # Remove only units that have no residents linked (safe delete)
+        units_with_residents = select(Resident.unit_id).where(Resident.unit_id.isnot(None)).scalar_subquery()
+        await db.execute(
+            delete(Unit).where(
+                Unit.condominium_id == condo.id,
+                Unit.id.notin_(units_with_residents),
+            )
+        )
+
+    created = 0
+    skipped = 0
+
+    for block in body.blocks:
+        if block.floor_end < block.floor_start:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Andar inválido: primeiro ({block.floor_start}) > último ({block.floor_end})",
+            )
+        if not (1 <= block.apts_per_floor <= 99):
+            raise HTTPException(status_code=422, detail="Apartamentos por andar deve ser entre 1 e 99")
+
+        num_floors = block.floor_end - block.floor_start + 1
+        total_block = num_floors * block.apts_per_floor
+        if total_block > 2000:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Bloco excede o limite de 2000 unidades ({total_block}). Divida em múltiplos blocos.",
+            )
+
+        prefix = block.prefix or ""
+        for floor in range(block.floor_start, block.floor_end + 1):
+            for apt in range(1, block.apts_per_floor + 1):
+                unit_num = floor * 100 + apt
+                code = f"{prefix}{unit_num}"
+                if len(code) > 20:
+                    raise HTTPException(status_code=422, detail=f"Código muito longo: '{code}' (máx 20 caracteres)")
+                existing = await db.execute(
+                    select(Unit).where(Unit.condominium_id == condo.id, Unit.unit_code == code)
+                )
+                if existing.scalar_one_or_none():
+                    skipped += 1
+                    continue
+                db.add(Unit(condominium_id=condo.id, unit_code=code, unit_prefix=prefix, unit_number=unit_num, is_active=True))
+                created += 1
+
+    await db.flush()
+    total_result = await db.execute(
+        select(func.count(Unit.id)).where(Unit.condominium_id == condo.id, Unit.is_active.is_(True))
+    )
+    total_units = total_result.scalar() or 0
+    await db.commit()
+    return {"created": created, "skipped": skipped, "total_units": total_units}
+
+
+# ── GET onboarding status ────────────────────────────────────────────
+
+
+class RequirementItem(BaseModel):
+    key: str
+    met: bool
+    message: str
+
+
+class OnboardingStatusResponse(BaseModel):
+    requirements: list[RequirementItem]
+    can_complete: bool
+
+
+@router.get("/{condominium_id}/onboarding/status")
+async def get_onboarding_status(
+    condominium_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Return checklist of onboarding requirements and whether completion is allowed."""
+    condo = await db.get(Condominium, condominium_id)
+    if not condo:
+        raise HTTPException(status_code=404, detail="Condomínio não encontrado")
+
+    requirements: list[RequirementItem] = []
+
+    # 1. Units
+    units_result = await db.execute(
+        select(func.count(Unit.id)).where(Unit.condominium_id == condo.id, Unit.is_active.is_(True))
+    )
+    units_count = units_result.scalar() or 0
+    requirements.append(RequirementItem(
+        key="units",
+        met=units_count > 0,
+        message=f"{units_count} unidade(s) cadastrada(s)" if units_count > 0 else "Nenhuma unidade cadastrada",
+    ))
+
+    # 2. Operator
+    op_result = await db.execute(
+        select(func.count(OperatorAssignment.id)).where(OperatorAssignment.condominium_id == condo.id)
+    )
+    op_count = op_result.scalar() or 0
+    requirements.append(RequirementItem(
+        key="operator",
+        met=op_count > 0,
+        message="Operador atribuído" if op_count > 0 else "Nenhum operador atribuído",
+    ))
+
+    # 3. Commission
+    commission_ok = False
+    if condo.commission_type == CommissionType.per_unit:
+        cr_result = await db.execute(
+            select(func.count(CommissionRate.id)).where(CommissionRate.condominium_id == condo.id)
+        )
+        commission_ok = (cr_result.scalar() or 0) > 0
+    else:
+        commission_ok = condo.commission_value is not None
+    requirements.append(RequirementItem(
+        key="commission",
+        met=commission_ok,
+        message="Comissão configurada" if commission_ok else "Comissão não configurada",
+    ))
+
+    can_complete = all(r.met for r in requirements)
+    return OnboardingStatusResponse(requirements=requirements, can_complete=can_complete)
+
+
+# ── POST reopen ──────────────────────────────────────────────────────
+
+
+@router.post("/{condominium_id}/onboarding/reopen")
+async def reopen_onboarding(
+    condominium_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Reopen onboarding for a condominium that was previously completed."""
+    condo = await db.get(Condominium, condominium_id)
+    if not condo:
+        raise HTTPException(status_code=404, detail="Condomínio não encontrado")
+    if not condo.onboarding_complete:
+        raise HTTPException(status_code=422, detail="Condomínio ainda não foi ativado")
+
+    condo.onboarding_complete = False
+    await db.commit()
+    return {"condominium_id": condo.id, "name": condo.name, "onboarding_complete": False}
+
+
+# ── GET existing units ───────────────────────────────────────────────
+
+
+@router.get("/{condominium_id}/onboarding/units")
+async def list_onboarding_units(
+    condominium_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """List existing units for this condominium (used in wizard step 2)."""
+    condo = await db.get(Condominium, condominium_id)
+    if not condo:
+        raise HTTPException(status_code=404, detail="Condomínio não encontrado")
+
+    result = await db.execute(
+        select(Unit).where(Unit.condominium_id == condo.id, Unit.is_active.is_(True)).order_by(Unit.unit_prefix, Unit.unit_number, Unit.unit_code)
+    )
+    units = result.scalars().all()
+    return {"units": [{"id": u.id, "unit_code": u.unit_code} for u in units], "total": len(units)}
+
+
+# ── POST stock-alerts ────────────────────────────────────────────────
+
+
+class StockAlertItem(BaseModel):
+    product_id: int
+    min_quantity: int
+
+
+class StockAlertsRequest(BaseModel):
+    global_min: Optional[int] = None
+    items: Optional[list[StockAlertItem]] = None
+
+
+@router.post("/{condominium_id}/onboarding/stock-alerts")
+async def set_stock_alerts(
+    condominium_id: int,
+    body: StockAlertsRequest,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Configure minimum stock alert thresholds. Supports global and per-product."""
+    condo = await db.get(Condominium, condominium_id)
+    if not condo:
+        raise HTTPException(status_code=404, detail="Condomínio não encontrado")
+
+    saved = 0
+
+    # Global threshold (product_id=NULL)
+    if body.global_min is not None:
+        existing = await db.execute(
+            select(StockAlertThreshold).where(
+                StockAlertThreshold.condominium_id == condo.id,
+                StockAlertThreshold.product_id.is_(None),
+            )
+        )
+        threshold = existing.scalar_one_or_none()
+        if threshold:
+            threshold.min_quantity = body.global_min
+        else:
+            db.add(StockAlertThreshold(condominium_id=condo.id, product_id=None, min_quantity=body.global_min))
+        saved += 1
+
+    # Per-product thresholds
+    if body.items:
+        for item in body.items:
+            existing = await db.execute(
+                select(StockAlertThreshold).where(
+                    StockAlertThreshold.condominium_id == condo.id,
+                    StockAlertThreshold.product_id == item.product_id,
+                )
+            )
+            threshold = existing.scalar_one_or_none()
+            if threshold:
+                threshold.min_quantity = item.min_quantity
+            else:
+                db.add(StockAlertThreshold(
+                    condominium_id=condo.id,
+                    product_id=item.product_id,
+                    min_quantity=item.min_quantity,
+                ))
+            saved += 1
+
+    await db.commit()
+    return {"saved": saved}
+
+
+@router.get("/{condominium_id}/onboarding/stock-alerts")
+async def get_stock_alerts(
+    condominium_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Return saved stock alert thresholds for a condominium."""
+    result = await db.execute(
+        select(StockAlertThreshold).where(StockAlertThreshold.condominium_id == condominium_id)
+    )
+    thresholds = result.scalars().all()
+    global_min = None
+    items = []
+    for t in thresholds:
+        if t.product_id is None:
+            global_min = t.min_quantity
+        else:
+            items.append({"product_id": t.product_id, "min_quantity": t.min_quantity})
+    return {"global_min": global_min, "items": items}
 
 
 # ── POST import-residents ─────────────────────────────────────────────
@@ -360,10 +765,37 @@ async def complete_onboarding(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_admin),
 ):
-    """Mark condominium as fully onboarded."""
+    """Mark condominium as fully onboarded. Validates mandatory requirements first."""
     condo = await db.get(Condominium, condominium_id)
     if not condo:
         raise HTTPException(status_code=404, detail="Condomínio não encontrado")
+
+    # Validate mandatory requirements
+    unmet: list[str] = []
+
+    units_result = await db.execute(
+        select(func.count(Unit.id)).where(Unit.condominium_id == condo.id, Unit.is_active.is_(True))
+    )
+    if (units_result.scalar() or 0) == 0:
+        unmet.append("Nenhuma unidade cadastrada — volte à Etapa 2")
+
+    op_result = await db.execute(
+        select(func.count(OperatorAssignment.id)).where(OperatorAssignment.condominium_id == condo.id)
+    )
+    if (op_result.scalar() or 0) == 0:
+        unmet.append("Nenhum operador atribuído — volte à Etapa 1")
+
+    if condo.commission_type == CommissionType.per_unit:
+        cr_result = await db.execute(
+            select(func.count(CommissionRate.id)).where(CommissionRate.condominium_id == condo.id)
+        )
+        if (cr_result.scalar() or 0) == 0:
+            unmet.append("Comissão por unidade/produto sem taxas configuradas — volte à Etapa 1")
+    elif condo.commission_value is None:
+        unmet.append("Comissão não configurada — volte à Etapa 1")
+
+    if unmet:
+        raise HTTPException(status_code=422, detail={"message": "Requisitos não atendidos", "unmet": unmet})
 
     condo.onboarding_complete = True
     if body.go_live_date:

@@ -1,7 +1,8 @@
 """Dashboard analytics API — per-condominium KPIs for a given month."""
 
+from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,6 +30,19 @@ class Defaulter(BaseModel):
     total_amount: float
     days_overdue: int
     status: str   # "open" | "submitted"
+
+
+class TrendPoint(BaseModel):
+    reference_month: str
+    total_billed: float
+    total_collected: float
+    total_open: float
+    default_rate: float
+
+
+class TrendResponse(BaseModel):
+    condominium_id: int
+    points: list[TrendPoint]
 
 
 class DashboardResponse(BaseModel):
@@ -202,3 +216,99 @@ async def get_dashboard(
         top5=top5,
         defaulters=defaulters_sorted,
     )
+
+
+# ── GET /trend/{condominium_id} ──────────────────────────────────────
+
+
+@router.get("/trend/{condominium_id}", response_model=TrendResponse)
+async def get_trend(
+    condominium_id: int,
+    months: int = Query(default=6, ge=2, le=24),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operator),
+):
+    """Return billing trend for the last N months (oldest → newest)."""
+    condo = await db.get(Condominium, condominium_id)
+    if not condo:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Condomínio não encontrado")
+
+    if current_user.role == UserRole.operator:
+        asgn = await db.execute(
+            select(OperatorAssignment).where(
+                OperatorAssignment.condominium_id == condominium_id,
+                OperatorAssignment.user_id == current_user.id,
+            )
+        )
+        if not asgn.scalar_one_or_none():
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
+
+    # Build the list of months to include (oldest first)
+    now = datetime.now()
+    target_months: list[str] = []
+    for i in range(months - 1, -1, -1):
+        y = now.year
+        m = now.month - i
+        while m <= 0:
+            m += 12
+            y -= 1
+        target_months.append(f"{y}-{m:02d}")
+
+    # Get unit ids for this condo
+    units_result = await db.execute(
+        select(Unit.id).where(Unit.condominium_id == condominium_id, Unit.is_active.is_(True))
+    )
+    unit_ids = list(units_result.scalars().all())
+
+    if not unit_ids:
+        return TrendResponse(
+            condominium_id=condominium_id,
+            points=[TrendPoint(reference_month=m, total_billed=0, total_collected=0, total_open=0, default_rate=0) for m in target_months],
+        )
+
+    # Fetch all billings for those months
+    billings_result = await db.execute(
+        select(Billing).where(
+            Billing.unit_id.in_(unit_ids),
+            Billing.reference_month.in_(target_months),
+            Billing.is_legacy.is_(False),
+        )
+    )
+    billings = billings_result.scalars().all()
+
+    # Group by month
+    by_month: dict[str, list[Billing]] = {m: [] for m in target_months}
+    for b in billings:
+        if b.reference_month in by_month:
+            by_month[b.reference_month].append(b)
+
+    points: list[TrendPoint] = []
+    for month in target_months:
+        total_billed = 0.0
+        total_collected = 0.0
+        total_open = 0.0
+        qty_billed = 0
+        qty_open = 0
+
+        for b in by_month[month]:
+            amount = float(b.total_amount)
+            if b.status != BillingStatus.draft:
+                total_billed += amount
+                qty_billed += 1
+            if b.status == BillingStatus.paid:
+                total_collected += amount
+            elif b.status in (BillingStatus.open, BillingStatus.submitted):
+                total_open += amount
+                if b.status == BillingStatus.open:
+                    qty_open += 1
+
+        default_rate = round((qty_open / qty_billed * 100), 1) if qty_billed > 0 else 0.0
+        points.append(TrendPoint(
+            reference_month=month,
+            total_billed=round(total_billed, 2),
+            total_collected=round(total_collected, 2),
+            total_open=round(total_open, 2),
+            default_rate=default_rate,
+        ))
+
+    return TrendResponse(condominium_id=condominium_id, points=points)

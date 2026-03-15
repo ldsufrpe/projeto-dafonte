@@ -89,13 +89,17 @@ function openAssignPopover(condoId: number, condoName: string, currentOpId: numb
   event.stopPropagation()
   const btn = event.currentTarget as HTMLElement
   const rect = btn.getBoundingClientRect()
-  // Position popover below the cell, aligned to left of trigger
+  const popoverHeight = 300
+  const spaceBelow = window.innerHeight - rect.bottom
+  const top = spaceBelow >= popoverHeight
+    ? rect.bottom + 6
+    : rect.top - popoverHeight - 6
   popoverPos.value = {
-    top: rect.bottom + window.scrollY + 6,
-    left: Math.min(rect.left + window.scrollX, window.innerWidth - 280),
+    top: Math.max(8, top),
+    left: Math.min(rect.left, window.innerWidth - 288),
   }
   popover.value = { condoId, condoName, currentOperatorId: currentOpId }
-  pendingUserId.value = currentOpId // pre-select current
+  pendingUserId.value = currentOpId
 }
 
 function closePopover() {
@@ -103,27 +107,37 @@ function closePopover() {
   pendingUserId.value = undefined
 }
 
-async function saveAssignment() {
-  if (!popover.value || pendingUserId.value === undefined) return
+async function saveAssignment(userId: number | null) {
+  if (!popover.value) return
   savingAssignment.value = true
   try {
     const { data } = await apiClient.post(`/assignments/condominiums/${popover.value.condoId}`, {
-      user_id: pendingUserId.value,
+      user_id: userId,
     })
-    // Update the row locally without refetch
     const condo = condoStore.condominiums.find(c => c.id === popover.value!.condoId)
     if (condo) {
       condo.operator_name = data.operator
         ? (data.operator.full_name || data.operator.username)
         : null
     }
-    // Refresh operator list (condominium_ids may have changed)
     await loadOperators()
     closePopover()
   } catch (err: any) {
     alert(err?.response?.data?.detail ?? 'Erro ao salvar atribuição')
   } finally {
     savingAssignment.value = false
+  }
+}
+
+// ── Reopen onboarding ────────────────────────────────────────────────────
+async function reopenOnboarding(condoId: number, condoName: string) {
+  if (!confirm(`Reabrir implantação de "${condoName}"?\n\nO condomínio voltará ao estado de implantação pendente.`)) return
+  try {
+    await apiClient.post(`/condominiums/${condoId}/onboarding/reopen`)
+    // Refresh list
+    await condoStore.fetchCondominiums(selectedMonth.value, selectedOperatorId.value)
+  } catch (err: any) {
+    alert(err?.response?.data?.detail ?? 'Erro ao reabrir implantação')
   }
 }
 
@@ -274,15 +288,13 @@ function getCurrentOperatorId(operatorName: string | null | undefined): number |
                   :class="{ 'bg-red-50/30': c.has_stock_alert }"
                   @click="selectCondominium(c.id)"
                 >
-                  <td class="px-4 py-3">
-                    <div class="flex items-center gap-2">
-                      <!-- Stock alert indicator -->
-                      <span v-if="c.has_stock_alert" class="w-2 h-2 rounded-full bg-red-500 animate-pulse flex-shrink-0" title="Alerta de estoque negativo"></span>
-                      <div>
-                        <p class="font-semibold text-gray-900">{{ c.name }}</p>
-                        <p class="text-xs text-gray-400">{{ c.address || c.erp_code }}</p>
-                      </div>
-                    </div>
+                  <td class="px-4 py-3 max-w-[220px]">
+                    <p class="font-semibold text-gray-900 truncate" :title="c.name">{{ c.name }}</p>
+                    <p class="text-xs text-gray-400 truncate">{{ c.address || c.erp_code }}</p>
+                    <span v-if="c.has_stock_alert" class="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-red-100 text-red-700 border border-red-200">
+                      <span class="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
+                      Estoque baixo
+                    </span>
                   </td>
 
                   <!-- Operator cell with inline assignment -->
@@ -350,6 +362,14 @@ function getCurrentOperatorId(operatorName: string | null | undefined): number |
                     >
                       Implantar
                     </router-link>
+                    <button
+                      v-if="c.onboarding_complete"
+                      class="ml-2 px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-xs font-medium hover:bg-amber-100 hover:text-amber-700 transition-colors"
+                      title="Reabre o wizard de implantação para corrigir dados ou completar etapas pendentes"
+                      @click.stop="reopenOnboarding(c.id, c.name)"
+                    >
+                      Reabrir
+                    </button>
                   </td>
                 </tr>
               </tbody>
@@ -372,9 +392,14 @@ function getCurrentOperatorId(operatorName: string | null | undefined): number |
 
       <!-- ══ OPERATOR VIEW ══ -->
       <template v-else>
-        <div v-if="!condoStore.condominiums.length" class="text-center py-16 bg-white rounded-2xl border border-gray-100 shadow-sm">
-          <p class="text-gray-500 font-medium">Nenhum condomínio atribuído a você.</p>
-          <p class="text-gray-400 text-sm mt-1">Solicite ao administrador que vincule condomínios à sua conta.</p>
+        <div v-if="!condoStore.condominiums.length" class="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center max-w-md mx-auto mt-8">
+          <div class="w-14 h-14 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg class="w-7 h-7 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
+            </svg>
+          </div>
+          <p class="text-gray-700 font-semibold text-base">Nenhum condomínio atribuído</p>
+          <p class="text-gray-400 text-sm mt-2 leading-relaxed">Sua conta ainda não foi vinculada a nenhum condomínio. Entre em contato com o administrador do sistema.</p>
         </div>
         <div v-else class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
           <CondominiumCard
@@ -418,74 +443,55 @@ function getCurrentOperatorId(operatorName: string | null | undefined): number |
           </div>
 
           <!-- Operator list -->
-          <div class="max-h-56 overflow-y-auto py-1">
-            <!-- No operator option -->
-            <label
-              class="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 cursor-pointer transition-colors"
-              :class="{ 'bg-blue-50': pendingUserId === null }"
-            >
-              <input
-                type="radio"
-                :value="null"
-                v-model="pendingUserId"
-                class="accent-blue-600"
-              />
-              <span class="text-sm text-gray-400 italic">Sem operador</span>
-            </label>
-
-            <div class="border-t border-gray-100 my-0.5"/>
-
-            <!-- Operator options -->
-            <label
-              v-for="op in operators"
-              :key="op.id"
-              class="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 cursor-pointer transition-colors"
-              :class="{ 'bg-blue-50': pendingUserId === op.id }"
-            >
-              <input
-                type="radio"
-                :value="op.id"
-                v-model="pendingUserId"
-                class="accent-blue-600"
-              />
-              <div class="flex-1 min-w-0">
-                <p class="text-sm font-medium text-gray-800 truncate">{{ op.full_name || op.username }}</p>
-                <p class="text-xs text-gray-400">{{ op.username }}</p>
-              </div>
-              <span
-                v-if="!op.is_active"
-                class="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded-full font-medium flex-shrink-0"
-              >inativo</span>
-              <span
-                v-else-if="op.condominium_ids.includes(popover!.condoId)"
-                class="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded-full font-medium flex-shrink-0"
-              >atual</span>
-            </label>
-
-            <div v-if="!operators.length" class="px-4 py-3 text-sm text-gray-400 italic text-center">
-              Nenhum operador cadastrado
+          <div class="overflow-y-auto py-1" style="max-height: 260px">
+            <div v-if="savingAssignment" class="px-4 py-3 flex items-center gap-2 text-sm text-gray-500">
+              <div class="w-4 h-4 border-2 border-blue-200 border-t-blue-600 rounded-full animate-spin"/>
+              Salvando...
             </div>
+            <template v-else>
+              <!-- No operator option -->
+              <button
+                class="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors text-left"
+                :class="popover?.currentOperatorId === null ? 'bg-blue-50' : ''"
+                @click="saveAssignment(null)"
+              >
+                <div class="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
+                  <svg class="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+                </div>
+                <span class="text-sm text-gray-400 italic">Sem operador</span>
+              </button>
+
+              <div class="border-t border-gray-100 my-0.5"/>
+
+              <!-- Operator options -->
+              <button
+                v-for="op in operators"
+                :key="op.id"
+                class="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 transition-colors text-left"
+                :class="op.condominium_ids.includes(popover!.condoId) ? 'bg-blue-50/60' : ''"
+                :disabled="!op.is_active"
+                @click="saveAssignment(op.id)"
+              >
+                <div class="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0 text-blue-700 font-bold text-xs">
+                  {{ (op.full_name || op.username).charAt(0).toUpperCase() }}
+                </div>
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-medium text-gray-800 truncate" :class="{ 'opacity-40': !op.is_active }">{{ op.full_name || op.username }}</p>
+                  <p class="text-xs text-gray-400">{{ op.username }}</p>
+                </div>
+                <span v-if="!op.is_active" class="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded-full font-medium flex-shrink-0">inativo</span>
+                <span v-else-if="op.condominium_ids.includes(popover!.condoId)" class="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded-full font-medium flex-shrink-0">atual</span>
+              </button>
+
+              <div v-if="!operators.length" class="px-4 py-3 text-sm text-gray-400 italic text-center">
+                Nenhum operador cadastrado
+              </div>
+            </template>
           </div>
 
-          <!-- Actions -->
-          <div class="px-4 py-3 border-t border-gray-100 flex justify-end gap-2 bg-gray-50">
-            <button
-              class="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800 font-medium rounded-lg hover:bg-gray-100 transition-colors"
-              @click="closePopover"
-            >
-              Cancelar
-            </button>
-            <button
-              :disabled="savingAssignment || pendingUserId === undefined"
-              class="px-4 py-1.5 text-sm font-semibold rounded-lg transition-colors flex items-center gap-2"
-              :class="savingAssignment || pendingUserId === undefined
-                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                : 'bg-blue-600 text-white hover:bg-blue-700'"
-              @click="saveAssignment"
-            >
-              <div v-if="savingAssignment" class="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin"/>
-              Confirmar
-            </button>
+          <!-- Footer -->
+          <div class="px-4 py-2.5 border-t border-gray-100 bg-gray-50 flex justify-end">
+            <button class="text-xs text-gray-400 hover:text-gray-600 font-medium" @click="closePopover">Fechar</button>
           </div>
         </div>
       </Transition>

@@ -88,6 +88,23 @@ export const useBillingStore = defineStore('billing', () => {
     error.value = ''
     try {
       const { data } = await apiClient.get(`/billing/${condoId}/${month}`)
+      // Normalize Decimal-as-string fields from FastAPI to actual numbers
+      for (const row of data.rows ?? []) {
+        row.total_amount = parseFloat(row.total_amount) || 0
+        for (const item of row.items ?? []) {
+          item.unit_price = parseFloat(item.unit_price) || 0
+          item.line_total = parseFloat(item.line_total) || 0
+        }
+      }
+      const s = data.summary
+      if (s) {
+        s.total_faturado = parseFloat(s.total_faturado) || 0
+        s.total_arrecadado = parseFloat(s.total_arrecadado) || 0
+        s.total_em_aberto = parseFloat(s.total_em_aberto) || 0
+      }
+      for (const p of data.products ?? []) {
+        p.unit_price = parseFloat(p.unit_price) || 0
+      }
       grid.value = data
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
@@ -190,9 +207,10 @@ export const useBillingStore = defineStore('billing', () => {
     s.totals_by_product = {}
 
     for (const row of grid.value.rows) {
-      s.total_faturado += row.total_amount
-      if (row.status === 'paid') s.total_arrecadado += row.total_amount
-      if (row.status === 'open' || row.status === 'submitted') s.total_em_aberto += row.total_amount
+      const amt = Number(row.total_amount)
+      s.total_faturado += amt
+      if (row.status === 'paid') s.total_arrecadado += amt
+      if (row.status === 'open' || row.status === 'submitted') s.total_em_aberto += amt
       for (const item of row.items) {
         s.totals_by_product[item.product_id] = (s.totals_by_product[item.product_id] ?? 0) + item.quantity
       }

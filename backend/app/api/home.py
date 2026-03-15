@@ -13,7 +13,7 @@ from app.api.finance import _calc_commission
 from app.models.billing import Billing, BillingItem, BillingStatus
 from app.models.condominium import Condominium, OperatorAssignment
 from app.models.product import Product
-from app.models.stock import StockEntry
+from app.models.stock import StockAlertThreshold, StockEntry
 from app.models.unit import Unit
 from app.models.user import User, UserRole
 
@@ -21,13 +21,27 @@ router = APIRouter(prefix="/home", tags=["home"])
 
 
 async def _has_stock_alert(db: AsyncSession, condominium_id: int, reference_month: str) -> bool:
-    """Return True if any active product has saldo_atual < 0 for this condo+month."""
+    """Return True if any active product has saldo_atual below configured threshold.
+    Priority: per-product threshold > global threshold > fallback (< 0)."""
     products_result = await db.execute(
         select(Product.id).where(Product.is_active.is_(True))
     )
     product_ids = products_result.scalars().all()
     if not product_ids:
         return False
+
+    # Load thresholds for this condominium
+    thresholds_result = await db.execute(
+        select(StockAlertThreshold).where(StockAlertThreshold.condominium_id == condominium_id)
+    )
+    thresholds = thresholds_result.scalars().all()
+    per_product_thresholds: dict[int, int] = {}
+    global_threshold: int | None = None
+    for t in thresholds:
+        if t.product_id is None:
+            global_threshold = t.min_quantity
+        else:
+            per_product_thresholds[t.product_id] = t.min_quantity
 
     for product_id in product_ids:
         # Cumulative entries up to and including this month
@@ -52,8 +66,11 @@ async def _has_stock_alert(db: AsyncSession, condominium_id: int, reference_mont
             )
         )
         total_consumo: int = q.scalar() or 0
+        saldo = total_entries - total_consumo
 
-        if total_entries - total_consumo < 0:
+        # Determine threshold: per-product > global > fallback (0)
+        threshold = per_product_thresholds.get(product_id, global_threshold if global_threshold is not None else 0)
+        if saldo < threshold:
             return True
 
     return False

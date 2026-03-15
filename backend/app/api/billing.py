@@ -4,11 +4,13 @@ Handles the billing grid (lançamento), quantity updates,
 resident edits with lazy activation, and mesh generation.
 """
 
+import csv
+import io
 import logging
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -68,7 +70,7 @@ async def get_billing_grid(
     units_result = await db.execute(
         select(Unit)
         .where(Unit.condominium_id == condominium_id, Unit.is_active.is_(True))
-        .order_by(Unit.unit_code)
+        .order_by(Unit.unit_prefix, Unit.unit_number, Unit.unit_code)
     )
     units = units_result.scalars().all()
 
@@ -353,6 +355,103 @@ async def generate_mesh(
         "range": f"{body.unit_start}-{body.unit_end}",
         "reference_month": body.reference_month,
     }
+
+
+# ── POST /{condominium_id}/{reference_month}/import-consumption ───────
+
+CONSUMPTION_COLUMNS = ["INDAIA20LT", "INDAIA10L", "IAIA20L"]
+
+
+@router.post("/{condominium_id}/{reference_month}/import-consumption")
+async def import_consumption(
+    condominium_id: int,
+    reference_month: str,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operator),
+):
+    """Import consumption quantities from CSV.
+    Expected columns: unidade, INDAIA20LT, INDAIA10L, IAIA20L
+    Updates BillingItem quantities for the given month."""
+    await _check_operator_access(db, current_user, condominium_id)
+
+    content = await file.read()
+    try:
+        text = content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = content.decode("latin-1")
+
+    reader = csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames or "unidade" not in [f.strip().lower() for f in reader.fieldnames]:
+        raise HTTPException(status_code=422, detail="CSV deve ter coluna 'unidade'")
+
+    # Normalise header keys
+    rows = [{k.strip(): v.strip() for k, v in row.items()} for row in reader]
+
+    # Load products indexed by erp_product_code
+    products_result = await db.execute(select(Product).where(Product.is_active.is_(True)))
+    products_by_code: dict[str, Product] = {p.erp_product_code: p for p in products_result.scalars().all()}
+
+    updated = 0
+    skipped = 0
+    errors: list[dict] = []
+
+    for i, row in enumerate(rows, start=2):
+        unit_code = row.get("unidade", "").strip()
+        if not unit_code:
+            errors.append({"row": i, "unit": "", "error": "Coluna 'unidade' vazia"})
+            continue
+
+        unit_result = await db.execute(
+            select(Unit).where(Unit.condominium_id == condominium_id, Unit.unit_code == unit_code)
+        )
+        unit = unit_result.scalar_one_or_none()
+        if not unit:
+            errors.append({"row": i, "unit": unit_code, "error": "Unidade não encontrada"})
+            continue
+
+        billing = await _ensure_billing(db, unit, reference_month, await _get_products_with_prices(db, condominium_id))
+
+        row_updated = False
+        for col in CONSUMPTION_COLUMNS:
+            raw = row.get(col, "0").strip() or "0"
+            try:
+                qty = max(0, int(float(raw)))
+            except ValueError:
+                errors.append({"row": i, "unit": unit_code, "error": f"Quantidade inválida para {col}: '{raw}'"})
+                continue
+
+            product = products_by_code.get(col)
+            if not product:
+                continue
+
+            item_result = await db.execute(
+                select(BillingItem).where(
+                    BillingItem.billing_id == billing.id,
+                    BillingItem.product_id == product.id,
+                )
+            )
+            item = item_result.scalar_one_or_none()
+            if item and item.quantity != qty:
+                item.quantity = qty
+                item.line_total = Decimal(str(qty)) * item.unit_price_snapshot
+                row_updated = True
+
+        if row_updated:
+            # Recalc billing total
+            items_result = await db.execute(
+                select(BillingItem).where(BillingItem.billing_id == billing.id)
+            )
+            billing.total_amount = sum(
+                (it.line_total for it in items_result.scalars().all()), Decimal("0")
+            )
+            updated += 1
+        else:
+            skipped += 1
+
+    await db.commit()
+
+    return {"updated": updated, "skipped": skipped, "errors_count": len(errors), "errors": errors}
 
 
 # ── Helpers ──────────────────────────────────────────────────────────

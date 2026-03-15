@@ -1,11 +1,4 @@
-import { onMounted, ref, computed, watch } from 'vue'
-import { useAuthStore } from '@/stores/auth'
-import { useCondominiumStore } from '@/stores/condominium'
-import { useFinanceStore } from '@/stores/finance'
-import SkeletonLoader from '@/components/SkeletonLoader.vue'
-import EmptyState from '@/components/EmptyState.vue'
-
-// ... resto do seu código ...
+<script setup lang="ts">
 import { onMounted, ref, computed, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useCondominiumStore } from '@/stores/condominium'
@@ -18,7 +11,7 @@ const condoStore = useCondominiumStore()
 const financeStore = useFinanceStore()
 
 const loading = ref(true)
-const currentMonth = ref(new Date().toISOString().slice(0, 7))  // YYYY-MM
+const currentMonth = ref(new Date().toLocaleDateString('en-CA').slice(0, 7))  // YYYY-MM (local time)
 
 const condoId = computed(() => condoStore.activeCondominiumId)
 
@@ -50,9 +43,8 @@ async function loadAll() {
     }
 }
 
-onMounted(loadAll)
 
-watch([condoId, currentMonth], loadAll)
+watch([condoId, currentMonth], loadAll, { immediate: true })
 
 // ── Computed KPIs ───────────────────────────────────
 const totalBilled = computed(() =>
@@ -160,7 +152,7 @@ const monthLabel = computed(() => {
             </p>
           </div>
           <div class="bg-green-50 rounded-xl p-4 text-center">
-            <p class="text-[9px] text-green-600 font-bold uppercase tracking-widest">Recebido (ERP)</p>
+            <p class="text-[9px] text-green-600 font-bold uppercase tracking-widest">Recebido (Retaguarda)</p>
             <p class="text-lg font-bold text-green-700 mt-1">{{ fmCurrency(Number(financeStore.commission.total_received)) }}</p>
           </div>
           <div class="bg-purple-50 rounded-xl p-4 text-center">

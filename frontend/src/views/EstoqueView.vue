@@ -45,12 +45,11 @@ async function load() {
   await stock.fetchChart(id, currentMonth.value, 6)
 }
 
-onMounted(() => load())
-watch([() => condoStore.activeCondominiumId, currentMonth], () => load())
+watch([() => condoStore.activeCondominiumId, currentMonth], () => load(), { immediate: true })
 
-// ── Computed: negative alerts ─────────────────────────────────────────
+// ── Computed: threshold alerts ────────────────────────────────────────
 const alerts = computed(() =>
-  (stock.overview?.products ?? []).filter(p => p.is_negative)
+  (stock.overview?.products ?? []).filter(p => p.is_below_threshold || p.is_negative)
 )
 
 // ── Product color palette ─────────────────────────────────────────────
@@ -218,7 +217,8 @@ const entryTypeLabel: Record<string, string> = {
               d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
           </svg>
           <span class="text-sm font-semibold text-red-700">
-            Divergência de Estoque — {{ a.product_name }} — Verifique desvios
+            <template v-if="a.is_negative">Divergência de Estoque — {{ a.product_name }} — Verifique desvios</template>
+            <template v-else>Estoque Baixo — {{ a.product_name }} — Abaixo do mínimo ({{ a.min_stock_alert }} un.)</template>
             <span class="font-normal ml-2">(Saldo atual: {{ a.saldo_atual }})</span>
           </span>
         </div>
@@ -230,7 +230,7 @@ const entryTypeLabel: Record<string, string> = {
           v-for="(p, idx) in stock.overview.products"
           :key="p.product_id"
           class="card p-5"
-          :class="p.is_negative ? 'border-2 border-red-300' : ''"
+          :class="p.is_negative ? 'border-2 border-red-300' : p.is_below_threshold ? 'border-2 border-amber-300' : ''"
         >
           <!-- Product header -->
           <div class="flex items-center gap-3 mb-4">
@@ -259,9 +259,14 @@ const entryTypeLabel: Record<string, string> = {
               <span class="font-mono">{{ p.consumo_lancado }}</span>
             </div>
             <div class="border-t border-gray-100 pt-2 mt-2 flex justify-between font-bold"
-              :class="p.is_negative ? 'text-red-600' : 'text-gray-900'">
+              :class="p.is_negative ? 'text-red-600' : p.is_below_threshold ? 'text-amber-600' : 'text-gray-900'">
               <span>Saldo atual</span>
               <span class="font-mono">{{ p.saldo_atual }}</span>
+            </div>
+            <div v-if="p.is_below_threshold && !p.is_negative && p.min_stock_alert != null" class="mt-1.5">
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700">
+                Abaixo do mínimo ({{ p.min_stock_alert }} un.)
+              </span>
             </div>
           </div>
         </div>

@@ -13,6 +13,8 @@ export interface ProductStockOverview {
   consumo_lancado: number
   saldo_atual: number
   is_negative: boolean
+  min_stock_alert: number | null
+  is_below_threshold: boolean
 }
 
 export interface StockEntry {

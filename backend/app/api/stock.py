@@ -15,7 +15,7 @@ from app.core.dependencies import require_operator
 from app.models.billing import Billing, BillingItem
 from app.models.condominium import Condominium
 from app.models.product import Product
-from app.models.stock import StockEntry, StockEntryType
+from app.models.stock import StockAlertThreshold, StockEntry, StockEntryType
 from app.models.unit import Unit
 from app.models.user import User
 from app.schemas.stock import (
@@ -162,11 +162,26 @@ async def get_stock_overview(
     )
     products = products_result.scalars().all()
 
+    # Load alert thresholds for this condominium
+    thresholds_result = await db.execute(
+        select(StockAlertThreshold).where(StockAlertThreshold.condominium_id == condominium_id)
+    )
+    thresholds = thresholds_result.scalars().all()
+    per_product_thresholds: dict[int, int] = {}
+    global_threshold: int | None = None
+    for t in thresholds:
+        if t.product_id is None:
+            global_threshold = t.min_quantity
+        else:
+            per_product_thresholds[t.product_id] = t.min_quantity
+
     product_overviews: list[ProductStockOverview] = []
     for product in products:
         saldo_anterior, entradas, consumo, saldo_atual = await _compute_product_stats(
             db, condominium_id, product.id, reference_month
         )
+        threshold = per_product_thresholds.get(product.id, global_threshold)
+        is_below = saldo_atual < threshold if threshold is not None else saldo_atual < 0
         product_overviews.append(
             ProductStockOverview(
                 product_id=product.id,
@@ -177,6 +192,8 @@ async def get_stock_overview(
                 consumo_lancado=consumo,
                 saldo_atual=saldo_atual,
                 is_negative=saldo_atual < 0,
+                min_stock_alert=threshold,
+                is_below_threshold=is_below,
             )
         )
 

@@ -14,55 +14,60 @@ const router = createRouter({
       redirect: '/home',
     },
     {
-      path: '/home',
-      name: 'home',
-      component: () => import('@/views/HomeView.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
-      // Rotas operacionais — usam AppLayout como wrapper
+      // Rotas com AppLayout (header + nav)
       path: '/',
       component: () => import('@/layouts/AppLayout.vue'),
-      meta: { requiresAuth: true, requiresCondominium: true },
+      meta: { requiresAuth: true },
       children: [
         {
+          path: 'home',
+          name: 'home',
+          component: () => import('@/views/HomeView.vue'),
+        },
+        {
           path: 'dashboard',
+          meta: { requiresCondominium: true },
           name: 'dashboard',
           component: () => import('@/views/DashboardView.vue'),
         },
         {
           path: 'lancamento',
           name: 'lancamento',
+          meta: { requiresCondominium: true },
           component: () => import('@/views/LancamentoView.vue'),
         },
         {
           path: 'historico',
           name: 'historico',
+          meta: { requiresCondominium: true },
           component: () => import('@/views/HistoricoView.vue'),
         },
         {
           path: 'estoque',
           name: 'estoque',
+          meta: { requiresCondominium: true },
           component: () => import('@/views/EstoqueView.vue'),
         },
         {
           path: 'configuracoes',
           name: 'configuracoes',
+          meta: { requiresCondominium: true },
           component: () => import('@/views/ConfiguracoesView.vue'),
         },
         {
           path: 'financeiro',
           name: 'financeiro',
+          meta: { requiresCondominium: true },
           component: () => import('@/views/FinanceiroView.vue'),
         },
+        {
+          // Implantação — não exige condomínio ativo (recebe por param)
+          path: '/implantacao/:condominiumId',
+          name: 'implantacao',
+          meta: { requiresAdmin: true },
+          component: () => import('@/views/ImplantacaoView.vue'),
+        },
       ],
-    },
-    {
-      // Implantação — usa AppLayout mas não exige condomínio ativo (recebe por param)
-      path: '/implantacao/:condominiumId',
-      name: 'implantacao',
-      component: () => import('@/views/ImplantacaoView.vue'),
-      meta: { requiresAuth: true, requiresAdmin: true },
     },
   ],
 })
@@ -109,8 +114,14 @@ router.beforeEach(async (to) => {
     }
   }
 
-  // 5. Se rota exige admin → verificar (simplificado — será refinado quando auth store persistir role)
-  // Por agora, a proteção real de admin é feita pelo backend
+  // 5. Se rota exige admin → verificar
+  if (to.meta.requiresAdmin) {
+    const { useAuthStore } = await import('@/stores/auth')
+    const auth = useAuthStore()
+    if (!auth.isAdmin) {
+      return { name: 'home' }
+    }
+  }
 })
 
 export default router

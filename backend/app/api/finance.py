@@ -190,6 +190,21 @@ async def get_operator_performance(
 # ── commission config (on condominium router) ────────────────────────
 
 
+@router.get("/condominiums/{condominium_id}/commission-config", response_model=dict)
+async def get_commission_config(
+    condominium_id: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    condo = await db.get(Condominium, condominium_id)
+    if not condo:
+        raise HTTPException(status_code=404, detail="Condomínio não encontrado")
+    return {
+        "commission_type": condo.commission_type.value if condo.commission_type else "fixed",
+        "commission_value": float(condo.commission_value) if condo.commission_value is not None else None,
+    }
+
+
 @router.put("/condominiums/{condominium_id}/commission-config", response_model=dict)
 async def update_commission_config(
     condominium_id: int,

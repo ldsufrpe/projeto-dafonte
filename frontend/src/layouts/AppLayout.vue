@@ -50,18 +50,18 @@ const userInitial = () => {
       <div class="max-w-screen-xl mx-auto px-6">
 
         <!-- Top bar -->
-        <div class="flex items-center justify-between h-16">
+        <div class="flex items-center justify-between h-12">
 
           <!-- Logo → home -->
-          <router-link to="/home" class="flex items-center gap-3 hover:opacity-80 transition-opacity shrink-0">
-            <div class="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center shadow">
-              <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+          <router-link to="/home" class="flex items-center gap-2 hover:opacity-80 transition-opacity shrink-0">
+            <div class="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center shadow">
+              <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M12 2C12 2 4 10.5 4 15a8 8 0 0016 0C20 10.5 12 2 12 2z"/>
               </svg>
             </div>
             <div class="leading-tight hidden sm:block">
-              <p class="text-lg font-bold text-gray-900 leading-none">FonteGest</p>
-              <p class="text-[10px] text-blue-500 font-medium tracking-wide">GESTÃO DE ÁGUA</p>
+              <p class="text-sm font-bold text-gray-900 leading-none">FonteGest</p>
+              <p class="text-[9px] text-blue-500 font-medium tracking-wide">GESTÃO DE ÁGUA</p>
             </div>
           </router-link>
 
@@ -110,18 +110,25 @@ const userInitial = () => {
           </div>
 
           <!-- User area -->
-          <div class="flex items-center gap-3">
+          <div class="flex items-center gap-2">
             <div class="text-right hidden md:block">
-              <p class="text-sm font-medium text-gray-700">{{ auth.user?.full_name || auth.user?.username }}</p>
-              <p class="text-xs text-gray-400">{{ auth.user?.role === 'admin' ? 'Administrador' : 'Operador' }}</p>
+              <p class="text-xs font-medium text-gray-700">{{ auth.user?.full_name || auth.user?.username }}</p>
+              <p class="text-[11px] text-gray-400">{{ auth.user?.role === 'admin' ? 'Administrador' : 'Operador' }}</p>
             </div>
-            <button
-              @click="handleLogout"
-              class="w-9 h-9 bg-gradient-to-br from-blue-500 to-blue-700 rounded-full flex items-center justify-center text-white font-bold text-sm shadow hover:opacity-90 transition-opacity"
-              title="Sair"
-            >
-              {{ userInitial() }}
-            </button>
+            <div class="flex items-center gap-2">
+              <div class="w-7 h-7 bg-gradient-to-br from-blue-500 to-blue-700 rounded-full flex items-center justify-center text-white font-bold text-xs shadow select-none">
+                {{ userInitial() }}
+              </div>
+              <button
+                @click="handleLogout"
+                class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg border border-gray-200 hover:border-red-200 transition-colors"
+              >
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                </svg>
+                Sair
+              </button>
+            </div>
           </div>
         </div>
 
@@ -184,7 +191,7 @@ const userInitial = () => {
             </template>
           </NavTab>
 
-          <NavTab to="/configuracoes" label="Configurações">
+          <NavTab v-if="auth.isAdmin" to="/configuracoes" label="Configurações">
             <template #icon>
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -213,11 +220,9 @@ const userInitial = () => {
     </div>
 
     <!-- ═══════ MAIN CONTENT ═══════ -->
-    <main class="max-w-screen-xl mx-auto px-6 py-8">
+    <main class="max-w-screen-xl mx-auto px-6 py-4">
       <router-view v-slot="{ Component }">
-        <transition name="fade" mode="out-in">
-          <component :is="Component" class="fade-up" />
-        </transition>
+        <component :is="Component" :key="$route.fullPath" class="fade-up" />
       </router-view>
     </main>
   </div>

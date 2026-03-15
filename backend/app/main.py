@@ -12,6 +12,7 @@ from app.core.logger import setup_logging
 setup_logging()
 
 from app.api.assignments import router as assignments_router
+from app.api.residents import router as residents_router
 from app.api.auth import router as auth_router
 from app.api.billing import router as billing_router
 from app.api.dashboard import router as dashboard_router
@@ -79,6 +80,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 app.include_router(health_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
 app.include_router(assignments_router, prefix="/api")
+app.include_router(residents_router, prefix="/api")
 app.include_router(erp_router, prefix="/api")
 app.include_router(home_router, prefix="/api")
 app.include_router(onboarding_router, prefix="/api")

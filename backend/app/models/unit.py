@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -18,6 +18,8 @@ class Unit(Base):
         ForeignKey("condominium.id", ondelete="CASCADE"), nullable=False, index=True
     )
     unit_code: Mapped[str] = mapped_column(String(20), nullable=False)
+    unit_prefix: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    unit_number: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 

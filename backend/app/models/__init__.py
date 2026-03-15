@@ -3,7 +3,7 @@ from app.models.condominium import Condominium, CommissionRate, CommissionType, 
 from app.models.product import Product, ProductPrice, PriceSource
 from app.models.unit import Unit, Resident
 from app.models.billing import Billing, BillingItem, BillingStatus
-from app.models.stock import StockEntry, StockEntryType
+from app.models.stock import StockAlertThreshold, StockEntry, StockEntryType
 from app.models.evidence import Evidence
 from app.models.onboarding import LegacyDebt, OnboardingImport, OnboardingStatus
 
@@ -13,7 +13,7 @@ __all__ = [
     "Product", "ProductPrice", "PriceSource",
     "Unit", "Resident",
     "Billing", "BillingItem", "BillingStatus",
-    "StockEntry", "StockEntryType",
+    "StockAlertThreshold", "StockEntry", "StockEntryType",
     "Evidence",
     "OnboardingImport", "OnboardingStatus", "LegacyDebt",
 ]

@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useCondominiumStore } from '@/stores/condominium'
 import { useProductStore } from '@/stores/product'
 import { useFinanceStore } from '@/stores/finance'
+import apiClient from '@/api/client'
 
 const auth = useAuthStore()
 const condoStore = useCondominiumStore()
@@ -11,11 +12,6 @@ const productStore = useProductStore()
 const financeStore = useFinanceStore()
 
 const loading = ref(true)
-
-// ── Price modal ─────────────────────────────────────
-const showPriceModal = ref(false)
-const priceForm = ref({ product_id: 0, unit_price: 0, valid_from: '' })
-const savingPrice = ref(false)
 
 // ── Price history expand ────────────────────────────
 const expandedPrices = ref<Record<number, boolean>>({})
@@ -31,6 +27,12 @@ const showRateModal = ref(false)
 const rateForm = ref({ product_id: 0, value_per_unit: 0, valid_from: '' })
 const savingRate = ref(false)
 
+// ── Stock alerts ─────────────────────────────────────
+const globalMinStock = ref<number | null>(null)
+const productAlerts = ref<{ product_id: number; name: string; min_quantity: number }[]>([])
+const alertsSaving = ref(false)
+const alertsSaved = ref(false)
+
 const condoId = computed(() => condoStore.activeCondominiumId)
 
 function fmCurrency(v: number | null | undefined): string {
@@ -43,11 +45,24 @@ async function loadAll() {
     loading.value = true
     try {
         await productStore.fetchProducts(condoId.value)
-        const condo = condoStore.activeCondominium
-        if (condo) {
-            commType.value = (condo as any).commission_type || 'fixed'
-            commValue.value = (condo as any).commission_value ?? null
-        }
+
+        const [commRes, alertRes] = await Promise.all([
+            apiClient.get(`/finance/condominiums/${condoId.value}/commission-config`),
+            apiClient.get(`/condominiums/${condoId.value}/onboarding/stock-alerts`),
+        ])
+
+        commType.value = commRes.data.commission_type || 'fixed'
+        commValue.value = commRes.data.commission_value ?? null
+
+        globalMinStock.value = alertRes.data.global_min ?? null
+        const saved: Record<number, number> = {}
+        for (const item of (alertRes.data.items || [])) saved[item.product_id] = item.min_quantity
+        productAlerts.value = productStore.products.map(p => ({
+            product_id: p.id,
+            name: p.name,
+            min_quantity: saved[p.id] ?? 0,
+        }))
+
         await financeStore.fetchCommissionRates(condoId.value)
     } finally {
         loading.value = false
@@ -56,33 +71,7 @@ async function loadAll() {
 
 onMounted(loadAll)
 
-watch(condoId, () => { if (condoId.value) loadAll() })
-
-// ── Product actions ─────────────────────────────────
-async function toggleProduct(id: number, currentActive: boolean) {
-    await productStore.toggleActive(id, !currentActive)
-}
-
-// ── Price actions ───────────────────────────────────
-function openNewPrice(productId: number) {
-    priceForm.value = { product_id: productId, unit_price: 0, valid_from: new Date().toISOString().slice(0, 10) }
-    showPriceModal.value = true
-}
-
-async function savePrice() {
-    savingPrice.value = true
-    try {
-        await productStore.createPrice(priceForm.value.product_id, {
-            condominium_id: condoId.value!,
-            valid_from: priceForm.value.valid_from,
-            unit_price: priceForm.value.unit_price,
-        })
-        await productStore.fetchProducts(condoId.value!)
-        showPriceModal.value = false
-    } finally {
-        savingPrice.value = false
-    }
-}
+watch(condoId, () => { if (condoId.value) loadAll() }, { immediate: true })
 
 async function togglePriceHistory(productId: number) {
     if (expandedPrices.value[productId]) {
@@ -136,10 +125,32 @@ async function saveRate() {
     }
 }
 
+async function saveStockAlerts() {
+    if (!condoId.value) return
+    alertsSaving.value = true
+    alertsSaved.value = false
+    try {
+        const payload: any = {}
+        if (globalMinStock.value != null && globalMinStock.value > 0) payload.global_min = globalMinStock.value
+        const items = productAlerts.value.filter(p => p.min_quantity > 0)
+        if (items.length) payload.items = items.map(p => ({ product_id: p.product_id, min_quantity: p.min_quantity }))
+        await apiClient.post(`/condominiums/${condoId.value}/onboarding/stock-alerts`, payload)
+        alertsSaved.value = true
+        setTimeout(() => alertsSaved.value = false, 3000)
+    } finally {
+        alertsSaving.value = false
+    }
+}
+
 const commTypeLabel: Record<string, string> = {
     fixed: 'Fixo Mensal',
     percent: 'Percentual sobre recebido',
     per_unit: 'Por unidade vendida',
+}
+
+const activeTooltip = ref<string | null>(null)
+function toggleTooltip(id: string) {
+    activeTooltip.value = activeTooltip.value === id ? null : id
 }
 </script>
 
@@ -169,9 +180,15 @@ const commTypeLabel: Record<string, string> = {
 
         <!-- ═══ SECTION 1: PRODUTOS ═══ -->
         <div class="card">
-          <div class="p-5 border-b border-gray-100">
-            <h2 class="text-lg font-bold text-gray-800">Catálogo de Produtos</h2>
-            <p class="text-xs text-gray-400 mt-0.5">Produtos sincronizados via Retaguarda — gerencie preços e visibilidade</p>
+          <div class="p-5 border-b border-gray-100 flex items-center justify-between">
+            <div>
+              <h2 class="text-lg font-bold text-gray-800">Catálogo de Produtos</h2>
+              <p class="text-xs text-gray-400 mt-0.5">Preços sincronizados via Retaguarda — somente visualização</p>
+            </div>
+            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-600 border border-blue-200">
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+              Gerenciado pela Retaguarda
+            </span>
           </div>
 
           <div class="overflow-x-auto">
@@ -180,10 +197,10 @@ const commTypeLabel: Record<string, string> = {
                 <tr>
                   <th class="text-left px-5 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Produto</th>
                   <th class="text-center px-3 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Capacidade</th>
-                  <th class="text-center px-3 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Cód. ERP</th>
+                  <th class="text-center px-3 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Cód. Retaguarda</th>
                   <th class="text-right px-3 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Preço Vigente</th>
                   <th class="text-center px-3 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
-                  <th class="text-center px-5 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Ações</th>
+                  <th class="text-center px-5 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider">Histórico</th>
                 </tr>
               </thead>
               <tbody>
@@ -203,22 +220,10 @@ const commTypeLabel: Record<string, string> = {
                     </span>
                   </td>
                   <td class="px-5 py-3 text-center">
-                    <div class="flex items-center justify-center gap-2">
-                      <button
-                        @click="openNewPrice(p.id)"
-                        class="px-2.5 py-1 text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
-                        title="Novo Preço"
-                      >Novo Preço</button>
-                      <button
-                        @click="togglePriceHistory(p.id)"
-                        class="px-2.5 py-1 text-xs font-medium text-gray-500 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
-                      >{{ expandedPrices[p.id] ? 'Fechar' : 'Histórico' }}</button>
-                      <button
-                        @click="toggleProduct(p.id, p.is_active)"
-                        :class="p.is_active ? 'text-red-500 bg-red-50 hover:bg-red-100' : 'text-green-600 bg-green-50 hover:bg-green-100'"
-                        class="px-2.5 py-1 text-xs font-medium rounded-lg transition-colors"
-                      >{{ p.is_active ? 'Desativar' : 'Ativar' }}</button>
-                    </div>
+                    <button @click="togglePriceHistory(p.id)"
+                      class="px-2.5 py-1 text-xs font-medium text-gray-500 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors">
+                      {{ expandedPrices[p.id] ? 'Fechar' : 'Ver' }}
+                    </button>
                   </td>
                 </tr>
               </tbody>
@@ -233,7 +238,7 @@ const commTypeLabel: Record<string, string> = {
                 <div v-for="pr in productStore.priceHistory[p.id]" :key="pr.id" class="flex items-center justify-between text-xs">
                   <span class="text-gray-500">Vigência: {{ pr.valid_from }}</span>
                   <span class="font-semibold text-gray-700">{{ fmCurrency(Number(pr.unit_price)) }}</span>
-                  <span class="text-gray-400 font-mono">{{ pr.source }}</span>
+                  <span class="text-gray-400 font-mono">{{ pr.source === 'erp' ? 'Retaguarda' : 'Manual' }}</span>
                 </div>
               </div>
               <p v-else class="text-xs text-gray-400">Nenhum preço registrado.</p>
@@ -243,15 +248,33 @@ const commTypeLabel: Record<string, string> = {
 
         <!-- ═══ SECTION 2: COMISSIONAMENTO ═══ -->
         <div class="card">
-          <div class="p-5 border-b border-gray-100">
-            <h2 class="text-lg font-bold text-gray-800">Comissionamento</h2>
-            <p class="text-xs text-gray-400 mt-0.5">Configure o tipo e valor da comissão para este condomínio</p>
+          <div class="p-5 border-b border-gray-100 flex items-start justify-between gap-3">
+            <div>
+              <h2 class="text-lg font-bold text-gray-800">Comissionamento</h2>
+              <p class="text-xs text-gray-400 mt-0.5">Configure o tipo e valor da comissão para este condomínio</p>
+            </div>
+            <button @click="toggleTooltip('comm-section')" class="text-gray-400 hover:text-gray-600 transition-colors mt-0.5 flex-shrink-0" type="button">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="10" stroke-width="2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 16v-4m0-4h.01"/></svg>
+            </button>
+          </div>
+          <div v-if="activeTooltip === 'comm-section'" class="mx-5 mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700 space-y-1">
+            <p><strong>Fixo Mensal:</strong> A FonteGest recebe um valor fixo por mês, independente do faturamento do condomínio.</p>
+            <p><strong>Percentual:</strong> A comissão é calculada como % do total recebido (boletos pagos) no mês.</p>
+            <p><strong>Por unidade vendida:</strong> Comissão calculada pela quantidade de cada produto entregue, com taxa configurável por produto.</p>
           </div>
 
           <div class="p-5 space-y-5">
             <!-- Type selector -->
             <div>
-              <label class="text-sm font-semibold text-gray-700 block mb-2">Tipo de Comissão</label>
+              <div class="flex items-center gap-2 mb-2">
+                <label class="text-sm font-semibold text-gray-700">Tipo de Comissão</label>
+                <button @click="toggleTooltip('comm-type')" class="text-gray-400 hover:text-gray-600 transition-colors" type="button">
+                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="10" stroke-width="2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 16v-4m0-4h.01"/></svg>
+                </button>
+              </div>
+              <div v-if="activeTooltip === 'comm-type'" class="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700">
+                Selecione como a FonteGest será remunerada por este condomínio. A alteração tem efeito a partir do próximo cálculo financeiro.
+              </div>
               <div class="flex flex-wrap gap-3">
                 <button
                   v-for="(label, key) in commTypeLabel" :key="key"
@@ -326,35 +349,74 @@ const commTypeLabel: Record<string, string> = {
           </div>
         </div>
 
+        <!-- ═══ SECTION 3: ALERTAS DE ESTOQUE ═══ -->
+        <div class="card">
+          <div class="p-5 border-b border-gray-100 flex items-start justify-between gap-3">
+            <div>
+              <h2 class="text-lg font-bold text-gray-800">Alertas de Estoque</h2>
+              <p class="text-xs text-gray-400 mt-0.5">Defina o estoque mínimo por produto. Um alerta é exibido no painel quando o saldo ficar abaixo do limite.</p>
+            </div>
+            <button @click="toggleTooltip('stock-section')" class="text-gray-400 hover:text-gray-600 transition-colors mt-0.5 flex-shrink-0" type="button">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="10" stroke-width="2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 16v-4m0-4h.01"/></svg>
+            </button>
+          </div>
+          <div v-if="activeTooltip === 'stock-section'" class="mx-5 mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700 space-y-1">
+            <p><strong>Global:</strong> Valor padrão aplicado a todos os produtos sem limite individual. Ex: 10 → alerta quando qualquer produto tiver menos de 10 unidades.</p>
+            <p><strong>Individual:</strong> Sobrescreve o global para aquele produto específico. Ex: Galão 20L com mínimo 5 → alerta apenas quando este produto tiver menos de 5 un.</p>
+            <p><strong>Zero:</strong> Produto sem limite — alerta somente se o saldo ficar negativo.</p>
+          </div>
+
+          <div class="p-5 space-y-4">
+            <table class="w-full text-sm">
+              <thead class="bg-slate-50 border-b border-gray-100">
+                <tr>
+                  <th class="text-left px-4 py-2 text-xs font-bold text-gray-500 uppercase">Produto</th>
+                  <th class="text-center px-4 py-2 text-xs font-bold text-gray-500 uppercase">Mínimo (un.)</th>
+                  <th class="text-left px-4 py-2 text-xs font-bold text-gray-500 uppercase">Status</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-50">
+                <!-- Global row -->
+                <tr class="bg-blue-50/40">
+                  <td class="px-4 py-2.5 font-semibold text-gray-700">Global (todos os produtos)</td>
+                  <td class="px-4 py-2.5 text-center">
+                    <input v-model.number="globalMinStock" type="number" min="0" placeholder="0"
+                      class="w-24 px-2 py-1 border border-gray-200 rounded-lg text-sm text-center focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                  </td>
+                  <td class="px-4 py-2.5 text-xs text-gray-400">Aplicado quando não há limite individual</td>
+                </tr>
+                <!-- Per-product rows -->
+                <tr v-for="pa in productAlerts" :key="pa.product_id">
+                  <td class="px-4 py-2.5 text-gray-700">{{ pa.name }}</td>
+                  <td class="px-4 py-2.5 text-center">
+                    <input v-model.number="pa.min_quantity" type="number" min="0" placeholder="0"
+                      class="w-24 px-2 py-1 border border-gray-200 rounded-lg text-sm text-center focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                  </td>
+                  <td class="px-4 py-2.5 text-xs">
+                    <span v-if="pa.min_quantity > 0" class="text-amber-600 font-medium">Alerta abaixo de {{ pa.min_quantity }} un.</span>
+                    <span v-else class="text-gray-400">Sem limite individual</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div class="flex items-center gap-4 pt-1">
+              <button @click="saveStockAlerts" :disabled="alertsSaving"
+                class="px-6 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50">
+                {{ alertsSaving ? 'Salvando...' : 'Salvar Alertas' }}
+              </button>
+              <span v-if="alertsSaved" class="text-sm text-green-600 font-medium flex items-center gap-1">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                Alertas salvos!
+              </span>
+            </div>
+          </div>
+        </div>
+
       </div>
     </template>
 
     <!-- ═══ MODALS ═══ -->
-
-    <!-- New Price modal -->
-    <Teleport to="body">
-      <div v-if="showPriceModal" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" @click.self="showPriceModal = false">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
-          <h3 class="text-lg font-bold text-gray-800 mb-5">Novo Preço</h3>
-          <div class="space-y-4">
-            <div>
-              <label class="text-xs font-bold text-gray-500 uppercase block mb-1">Preço Unitário (R$)</label>
-              <input v-model.number="priceForm.unit_price" type="number" step="0.01" min="0" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
-            </div>
-            <div>
-              <label class="text-xs font-bold text-gray-500 uppercase block mb-1">Data de Vigência</label>
-              <input v-model="priceForm.valid_from" type="date" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
-            </div>
-          </div>
-          <div class="flex justify-end gap-3 mt-6">
-            <button @click="showPriceModal = false" class="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 font-medium">Cancelar</button>
-            <button @click="savePrice" :disabled="savingPrice" class="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
-              {{ savingPrice ? 'Salvando...' : 'Salvar Preço' }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
 
     <!-- New Rate modal -->
     <Teleport to="body">

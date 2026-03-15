@@ -10,7 +10,21 @@
         {
             "username": "JOAO",
             "password": "joao123",
-            "full_name": "Joao",
+            "full_name": "João Silva",
+            "email": null,
+            "is_admin": false
+        },
+        {
+            "username": "ANA",
+            "password": "ana123",
+            "full_name": "Ana Paula Ferreira",
+            "email": null,
+            "is_admin": false
+        },
+        {
+            "username": "PEDRO",
+            "password": "pedro123",
+            "full_name": "Pedro Henrique Costa",
             "email": null,
             "is_admin": false
         }
@@ -34,6 +48,16 @@
                 "INDAIA20LT": "14.00",
                 "INDAIA10L": null,
                 "IAIA20L": "11.50"
+            }
+        },
+        {
+            "erp_code": "{MOCK-BRS-0003}",
+            "name": "RES. BRISA MAR",
+            "address": "Av. Beira Mar, 1500 — Bloco A e B",
+            "prices": {
+                "INDAIA20LT": "13.50",
+                "INDAIA10L": "6.50",
+                "IAIA20L": "11.00"
             }
         }
     ],

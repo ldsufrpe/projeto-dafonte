@@ -29,6 +29,8 @@ class ProductStockOverview(BaseModel):
     consumo_lancado: int
     saldo_atual: int
     is_negative: bool
+    min_stock_alert: Optional[int] = None
+    is_below_threshold: bool = False
 
 
 class StockOverviewResponse(BaseModel):
